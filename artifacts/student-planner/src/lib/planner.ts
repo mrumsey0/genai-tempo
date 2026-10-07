@@ -96,42 +96,79 @@ export function scheduleAssignment(
     ...demoEvents(now, deadline),
     ...existing.flatMap((assignment) => assignment.blocks),
   ].map((event) => ({ start: +new Date(event.start), end: +new Date(event.end) }));
-  const blocks: CalendarEvent[] = [];
-  let remaining = input.estimatedMinutes;
-  const day = new Date(now);
-  day.setHours(0, 0, 0, 0);
-  while (day < deadline && remaining > 0) {
-    const opening = new Date(day);
-    opening.setHours(WORK_START, 0, 0, 0);
-    const closing = new Date(day);
-    closing.setHours(WORK_END, 0, 0, 0);
-    let cursor = new Date(Math.max(+opening, +now));
-    const round = cursor.getMinutes() % 30 || cursor.getSeconds() || cursor.getMilliseconds();
-    if (round) {
-      cursor.setMinutes(Math.floor(cursor.getMinutes() / 30) * 30 + 30, 0, 0);
-    }
-    const limit = Math.min(+closing, +deadline);
-    while (+cursor + 30 * MINUTE <= limit && remaining > 0) {
-      const start = +cursor;
-      const free = (length: number) => start + length * MINUTE <= limit &&
-        !busy.some((event) => start < event.end && start + length * MINUTE > event.start);
-      const length = remaining >= 60 && free(60) ? 60 : free(30) ? 30 : 0;
-      if (length) {
-        blocks.push({
-          id: `${input.id}-session-${blocks.length + 1}`, assignmentId: input.id,
-          title: input.title.trim(), kind: "work",
-          start: cursor.toISOString(), end: new Date(start + length * MINUTE).toISOString(),
-        });
-        remaining -= length;
+  function planBefore(cutoff: number, breakMinutes: number) {
+    const days: { slots: { start: number; length: number }[]; planned: number; priority: number }[] = [];
+    const day = new Date(now);
+    day.setHours(0, 0, 0, 0);
+    while (+day < cutoff) {
+      const opening = new Date(day);
+      opening.setHours(WORK_START, 0, 0, 0);
+      const closing = new Date(day);
+      closing.setHours(WORK_END, 0, 0, 0);
+      let cursor = new Date(Math.max(+opening, +now));
+      if (cursor.getMinutes() % 30 || cursor.getSeconds() || cursor.getMilliseconds()) {
+        cursor.setMinutes(Math.floor(cursor.getMinutes() / 30) * 30 + 30, 0, 0);
       }
-      cursor = new Date(start + (length || 30) * MINUTE);
+      const limit = Math.min(+closing, cutoff);
+      const slots: { start: number; length: number }[] = [];
+      while (+cursor + 30 * MINUTE <= limit) {
+        const start = +cursor;
+        const free = (length: number) => start + length * MINUTE <= limit &&
+          !busy.some((event) => start < event.end && start + length * MINUTE > event.start);
+        const length = free(60) ? 60 : free(30) ? 30 : 0;
+        if (length) slots.push({ start, length });
+        cursor = new Date(start + (length ? length + breakMinutes : 30) * MINUTE);
+      }
+      if (slots.length) days.push({ slots, planned: 0, priority: days.length });
+      day.setDate(day.getDate() + 1);
     }
-    day.setDate(day.getDate() + 1);
+    // When fewer sessions than available days are needed, sample days across
+    // the whole window rather than filling only the first few days.
+    const sessionCount = Math.min(days.length, Math.ceil(input.estimatedMinutes / 60));
+    const preferred = new Set<number>();
+    for (let i = 0; i < sessionCount; i++) {
+      const index = sessionCount === 1 ? 0 : Math.round(i * (days.length - 1) / (sessionCount - 1));
+      preferred.add(index);
+      days[index]!.priority = i;
+    }
+    days.forEach((entry, index) => {
+      if (!preferred.has(index)) entry.priority = sessionCount + index;
+    });
+    const blocks: CalendarEvent[] = [];
+    let remaining = input.estimatedMinutes;
+    while (remaining > 0) {
+      const available = days.filter((entry) => entry.slots.length)
+        .sort((a, b) => a.planned - b.planned || a.priority - b.priority);
+      const chosen = available[0];
+      if (!chosen) break;
+      const slot = chosen.slots.shift()!;
+      const length = Math.min(remaining, slot.length);
+      blocks.push({
+        id: `${input.id}-session-${blocks.length + 1}`, assignmentId: input.id,
+        title: input.title.trim(), kind: "work",
+        start: new Date(slot.start).toISOString(),
+        end: new Date(slot.start + length * MINUTE).toISOString(),
+      });
+      chosen.planned += length;
+      remaining -= length;
+    }
+    blocks.sort((a, b) => +new Date(a.start) - +new Date(b.start));
+    return { blocks, remaining };
   }
-  if (remaining > 0) {
-    throw new Error(`Only ${durationLabel(input.estimatedMinutes - remaining)} is free before this deadline (8 am–9 pm). Reduce the estimate or choose a later deadline. Nothing has been scheduled.`);
+  // The 24-hour buffer has priority. Relax breaks only if capacity is tight,
+  // then use the actual deadline if the complete estimate cannot fit early.
+  const earlyFinish = +deadline - 24 * 60 * MINUTE;
+  let result = { blocks: [] as CalendarEvent[], remaining: input.estimatedMinutes };
+  for (const cutoff of [earlyFinish, +deadline]) {
+    if (cutoff <= +now) continue;
+    for (const breakMinutes of [60, 30, 0]) {
+      result = planBefore(cutoff, breakMinutes);
+      if (result.remaining === 0) {
+        return { ...input, title: input.title.trim(), due: deadline.toISOString(), blocks: result.blocks };
+      }
+    }
   }
-  return { ...input, title: input.title.trim(), due: deadline.toISOString(), blocks };
+  throw new Error(`Only ${durationLabel(input.estimatedMinutes - result.remaining)} is free before this deadline (8 am–9 pm). Reduce the estimate or choose a later deadline. Nothing has been scheduled.`);
 }
 
 export function loadAssignments(): { assignments: Assignment[]; error?: string } {

@@ -35,6 +35,47 @@ test("new assignments avoid existing work sessions", () => {
   const next = scheduleAssignment({ ...input(), id: "next" }, [first], now);
   assert.ok(next.blocks.every((b) => !first.blocks.some((a) => b.start < a.end && b.end > a.start)));
 });
+test("essay sessions are balanced across days and finish at least 24 hours early", () => {
+  const a = scheduleAssignment(input(300, new Date(2026, 9, 9, 18)), [], now);
+  const totals = new Map<string, number>();
+  for (const b of a.blocks) {
+    const date = new Date(b.start).toDateString();
+    totals.set(date, (totals.get(date) ?? 0) + (+new Date(b.end) - +new Date(b.start)) / 60_000);
+    assert.ok(+new Date(b.end) <= +new Date(a.due) - 24 * 60 * 60_000);
+  }
+  assert.equal(totals.size, 4);
+  assert.ok(Math.max(...totals.values()) - Math.min(...totals.values()) <= 60);
+  assert.equal(minutes(a), 300);
+});
+test("fewer sessions are spread across the planning window, not just the first days", () => {
+  const a = scheduleAssignment(input(120, new Date(2026, 9, 12, 18)), [], now);
+  assert.equal(new Date(a.blocks[0]!.start).getDate(), 5);
+  assert.equal(new Date(a.blocks[1]!.start).getDate(), 11);
+});
+test("same-day sessions have an hour break when there is room", () => {
+  const a = scheduleAssignment(input(180, new Date(2026, 9, 5, 21)), [], now);
+  assert.equal(minutes(a), 180);
+  for (let i = 1; i < a.blocks.length; i++) {
+    assert.ok(+new Date(a.blocks[i]!.start) - +new Date(a.blocks[i - 1]!.end) >= 60 * 60_000);
+  }
+});
+test("fallback uses deadline when 24-hour buffer has insufficient capacity", () => {
+  const a = scheduleAssignment(input(300, new Date(2026, 9, 6, 9)), [], now);
+  assert.equal(minutes(a), 300);
+  assert.ok(a.blocks.some((b) => +new Date(b.end) > +new Date(a.due) - 24 * 60 * 60_000));
+  assert.ok(a.blocks.every((b) => +new Date(b.end) <= +new Date(a.due)));
+});
+test("early finish is preserved even when breaks must be shortened", () => {
+  const a = scheduleAssignment(input(120, new Date(2026, 9, 6, 20, 30)), [], new Date(2026, 9, 5, 18, 30));
+  assert.equal(minutes(a), 120);
+  assert.ok(a.blocks.every((b) => +new Date(b.end) <= +new Date(a.due) - 24 * 60 * 60_000));
+});
+test("urgent assignments still fit when back-to-back sessions are unavoidable", () => {
+  const a = scheduleAssignment(input(120, new Date(2026, 9, 5, 21)), [], new Date(2026, 9, 5, 19));
+  assert.equal(minutes(a), 120);
+  assert.equal(a.blocks[0]!.end, a.blocks[1]!.start);
+  assert.equal(a.blocks[1]!.end, a.due);
+});
 test("rounds current time forward to the next half-hour", () => {
   const current = new Date(2026, 9, 5, 8, 0, 1);
   const a = scheduleAssignment(input(30), [], current);

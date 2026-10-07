@@ -214,7 +214,7 @@ export default function Planner() {
           <section className="rounded-3xl bg-primary text-primary-foreground p-5 text-sm space-y-2" data-testid="panel-prototype">
             <h2 className="font-serif text-lg font-semibold flex items-center gap-2"><Info className="size-4" aria-hidden /> A local prototype</h2>
             <p className="opacity-90">Everything stays in this browser. There is no account and no server, and the estimate is a simple demo rule, not real AI.</p>
-            <p className="opacity-90">Sessions are placed only between 8 am and 9 pm, around your classes and commitments.</p>
+            <p className="opacity-90">Sessions are spread across available days between 8 am and 9 pm, with breaks whenever possible. We aim to finish at least 24 hours before your deadline, using later time only if needed.</p>
           </section>
         </aside>
       </main>
