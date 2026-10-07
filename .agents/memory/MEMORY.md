@@ -1,1 +1,2 @@
 - [Browser verification](browser-verification.md) — runtime test capabilities may differ from the installed skill documentation; confirm support before relying on them.
+- [Workspace package helper](workspace-package-helper.md) — the package-install helper may reject pnpm workspace roots and cannot accept an empty package list.
