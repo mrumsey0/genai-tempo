@@ -1,0 +1,1 @@
+- [Browser verification](browser-verification.md) — runtime test capabilities may differ from the installed skill documentation; confirm support before relying on them.

@@ -1,0 +1,28 @@
+kind = "web"
+previewPath = "/"
+title = "Tempo — Student Planner"
+description = "A student weekly calendar prototype that estimates assignment effort using simulated AI, lets students adjust estimates, and schedules focused work around pre-filled classes and meetings before each deadline."
+version = "1.0.0"
+id = "artifacts/student-planner"
+router = "path"
+
+[[services]]
+name = "web"
+paths = [ "/" ]
+localPort = 20425
+
+[services.development]
+run = "pnpm --filter @workspace/student-planner run dev"
+
+[services.production]
+build = [ "pnpm", "--filter", "@workspace/student-planner", "run", "build" ]
+serve = "static"
+publicDir = "artifacts/student-planner/dist/public"
+
+[[services.production.rewrites]]
+from = "/*"
+to = "/index.html"
+
+[services.env]
+PORT = "20425"
+BASE_PATH = "/"
