@@ -1,10 +1,22 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { estimateMinutes, estimateExplanation, scheduleAssignment, demoEvents, startOfWeek, addDays, loadAssignments, saveAssignments, STORAGE_KEY, moveSession, removeSession, scheduledMinutes, shortfallWarning } from "./planner.ts";
+import { estimateMinutes, estimateExplanation, scheduleAssignment as scheduleBlank, demoEvents, startOfWeek, addDays, loadAssignments, saveAssignments, STORAGE_KEY, moveSession as moveBlank, removeSession, scheduledMinutes, shortfallWarning, type Assignment } from "./planner.ts";
 
 const now = new Date(2026, 9, 5, 8, 0); // Monday, local time.
 const input = (minutes = 300, due = new Date(2026, 9, 8, 18, 0)) => ({
   id: "test", title: "Essay", description: "Write an analysis", due: due.toISOString(), estimatedMinutes: minutes,
+});
+// Keep the sample-calendar regressions explicit; the application now defaults
+// to no commitments until the user adds a calendar.
+const scheduleAssignment = (value: ReturnType<typeof input>, existing: Assignment[], date = now) =>
+  scheduleBlank(value, existing, date, demoEvents(date, new Date(value.due)));
+const moveSession = (assignments: Assignment[], assignmentId: string, sessionId: string, start: string, date = now) =>
+  moveBlank(assignments, assignmentId, sessionId, start, date,
+    Number.isFinite(+new Date(start)) ? demoEvents(new Date(start), addDays(new Date(start), 1)) : []);
+test("blank calendar has no hidden sample commitments for scheduling or session moves", () => {
+  const a = scheduleBlank(input(60, new Date(2026, 9, 5, 10)), [], new Date(2026, 9, 5, 9));
+  assert.equal(a.blocks[0]!.start, new Date(2026, 9, 5, 9).toISOString());
+  assert.deepEqual(moveBlank([a], a.id, a.blocks[0]!.id, a.blocks[0]!.start, now), [a]);
 });
 const minutes = (a: ReturnType<typeof scheduleAssignment>) =>
   a.blocks.reduce((sum, block) => sum + (+new Date(block.end) - +new Date(block.start)) / 60_000, 0);

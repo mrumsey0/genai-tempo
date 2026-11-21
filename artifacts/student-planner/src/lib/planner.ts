@@ -6,6 +6,8 @@ export interface CalendarEvent {
   kind: "class" | "meeting" | "work";
   assignmentId?: string;
   location?: string;
+  allDay?: boolean;
+  transparent?: boolean;
 }
 export interface Assignment {
   id: string;
@@ -46,6 +48,7 @@ export function removeSession(assignments: Assignment[], assignmentId: string, s
 }
 export function moveSession(
   assignments: Assignment[], assignmentId: string, sessionId: string, startInput: string, now = new Date(),
+  calendarEvents: CalendarEvent[] = [],
 ): Assignment[] {
   const assignment = assignments.find((a) => a.id === assignmentId);
   const block = assignment?.blocks.find((b) => b.id === sessionId);
@@ -58,7 +61,7 @@ export function moveSession(
   closing.setHours(WORK_END, 0, 0, 0);
   if (start.getHours() < WORK_START || +end > +closing) throw new Error("Sessions must fit between 8 am and 9 pm.");
   if (+end > +new Date(assignment.due)) throw new Error("The whole session must finish on or before the assignment deadline.");
-  const busy = [...demoEvents(start, end), ...assignments.flatMap((a) =>
+  const busy = [...calendarEvents.filter((event) => !event.transparent), ...assignments.flatMap((a) =>
     a.blocks.filter((b) => !(a.id === assignmentId && b.id === sessionId)))];
   if (busy.some((b) => +start < +new Date(b.end) && +end > +new Date(b.start))) {
     throw new Error("That time overlaps a class, commitment, or another study session.");
@@ -128,6 +131,7 @@ export function scheduleAssignment(
   input: { id: string; title: string; description: string; due: string; estimatedMinutes: number },
   existing: Assignment[],
   now = new Date(),
+  calendarEvents: CalendarEvent[] = [],
 ): Assignment {
   const deadline = new Date(input.due);
   if (!input.title.trim()) throw new Error("Please give your assignment a title.");
@@ -136,7 +140,7 @@ export function scheduleAssignment(
     throw new Error("Choose an estimate of at least 30 minutes, in 30-minute increments.");
   }
   const busy = [
-    ...demoEvents(now, deadline),
+    ...calendarEvents.filter((event) => !event.transparent),
     ...existing.flatMap((assignment) => assignment.blocks),
   ].map((event) => ({ start: +new Date(event.start), end: +new Date(event.end) }));
   function planBefore(cutoff: number, breakMinutes: number) {

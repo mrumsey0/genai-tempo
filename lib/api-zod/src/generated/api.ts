@@ -5,12 +5,35 @@
  * API specification
  * OpenAPI spec version: 0.1.0
  */
-import * as zod from "zod";
+import * as zod from 'zod';
+
+
+/**
+ * @summary Fetch a public iCalendar feed for a one-time browser import
+ */
+export const importCalendarBodyUrlMax = 4096;
+
+
+
+export const ImportCalendarBody = zod.object({
+  "url": zod.string().min(1).max(importCalendarBodyUrlMax)
+})
+
+export const importCalendarResponseContentMax = 1048576;
+
+
+
+export const ImportCalendarResponse = zod.object({
+  "content": zod.string().max(importCalendarResponseContentMax)
+})
+
 
 /**
  * Returns server health status
  * @summary Health check
  */
 export const HealthCheckResponse = zod.object({
-  status: zod.string(),
-});
+  "status": zod.string()
+})
+
+

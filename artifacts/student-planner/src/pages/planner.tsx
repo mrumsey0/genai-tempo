@@ -2,13 +2,15 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { CalendarDays, ChevronLeft, ChevronRight, Clock, MapPin, Minus, Plus, Trash2, TriangleAlert, Sparkles, Info } from "lucide-react";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { SessionEditor } from "@/components/session-editor";
+import { AddCalendar } from "@/components/add-calendar";
+import { calendarEvents, loadCalendars, saveCalendars, type AddedCalendar } from "@/lib/calendars";
 import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import {
   type Assignment, type CalendarEvent, WORK_START, WORK_END,
-  addDays, demoEvents, durationLabel, estimateMinutes, loadAssignments,
+  addDays, durationLabel, estimateMinutes, loadAssignments,
   localInput, saveAssignments, scheduleAssignment, startOfWeek,
   estimateExplanation, scheduledMinutes, shortfallWarning, moveSession, removeSession,
 } from "@/lib/planner";
@@ -30,12 +32,23 @@ const KIND: Record<CalendarEvent["kind"], string> = {
 };
 const KIND_LABEL = { class: "Class", meeting: "Commitment", work: "Study session" } as const;
 
-type Modal = { type: "add" } | { type: "event"; event: CalendarEvent } | { type: "assignment"; id: string } | { type: "session"; assignmentId: string; sessionId: string } | null;
+type Modal = { type: "add" } | { type: "calendar" } | { type: "event"; event: CalendarEvent } | { type: "assignment"; id: string } | { type: "session"; assignmentId: string; sessionId: string } | null;
 
 export default function Planner() {
   const [initial] = useState(() => loadAssignments());
+  const [initialCalendars] = useState(() => loadCalendars());
+  const [calendars, setCalendars] = useState(initialCalendars.calendars);
   const [assignments, setAssignments] = useState<Assignment[]>(initial.assignments);
-  const storageError = initial.error;
+  const calendarView = useMemo(() => {
+    try {
+      const blocks = assignments.flatMap((a) => a.blocks);
+      const from = new Date(Math.min(Date.now(), ...blocks.map((b) => +new Date(b.start))));
+      const through = new Date(Math.max(+addDays(new Date(), 7), ...blocks.map((b) => +new Date(b.end))));
+      const imported = calendarEvents(calendars, from, through);
+      const conflicts = blocks.filter((b) => imported.some((e) => !e.transparent && +new Date(b.start) < +new Date(e.end) && +new Date(b.end) > +new Date(e.start))).length;
+      return { conflicts, error: undefined };
+    } catch (e) { return { conflicts: 0, error: e instanceof Error ? e.message : "Couldn't read calendar events." }; }
+  }, [calendars, assignments]);
   const [weekStart, setWeekStart] = useState(() => startOfWeek(new Date()));
   const [modal, setModal] = useState<Modal>(null);
   const [notice, setNotice] = useState<string | null>(null);
@@ -44,11 +57,19 @@ export default function Planner() {
   const [deleteError, setDeleteError] = useState<string | null>(null);
 
   const days = useMemo(() => Array.from({ length: 7 }, (_, i) => addDays(weekStart, i)), [weekStart]);
-  const events = useMemo(() => {
+  const visibleCalendar = useMemo(() => {
     const end = addDays(weekStart, 7);
-    const all = [...demoEvents(weekStart, addDays(weekStart, 6)), ...assignments.flatMap((a) => a.blocks)];
-    return all.filter((e) => +new Date(e.start) >= +weekStart && +new Date(e.start) < +end);
-  }, [weekStart, assignments]);
+    const work = assignments.flatMap((a) => a.blocks);
+    try {
+      const all = [...calendarEvents(calendars, weekStart, end), ...work];
+      return { events: all.filter((e) => +new Date(e.end) >= +weekStart && +new Date(e.start) < +end), error: undefined };
+    } catch (e) {
+      return { events: work.filter((e) => +new Date(e.end) >= +weekStart && +new Date(e.start) < +end),
+        error: e instanceof Error ? e.message : "Couldn't display this calendar." };
+    }
+  }, [weekStart, assignments, calendars]);
+  const events = visibleCalendar.events;
+  const storageError = initial.error || initialCalendars.error || calendarView.error || visibleCalendar.error;
   const today = new Date();
   const sorted = useMemo(() => [...assignments].sort((a, b) => +new Date(a.due) - +new Date(b.due)), [assignments]);
   const rangeLabel = `${days[0].toLocaleDateString([], { month: "short", day: "numeric" })} – ${days[6].toLocaleDateString([], { month: "short", day: "numeric", year: "numeric" })}`;
@@ -92,6 +113,11 @@ export default function Planner() {
             </svg>
             <span className="font-serif text-2xl font-semibold tracking-tight" data-testid="text-brand">Tempo</span>
           </div>
+          <button onClick={() => setModal({ type: "calendar" })} disabled={!!storageError}
+            data-testid="button-add-calendar"
+            className="inline-flex items-center gap-2 rounded-full border bg-card px-4 h-10 text-sm font-semibold disabled:opacity-50 focus-visible:ring-2 focus-visible:ring-ring">
+            <CalendarDays className="size-4" aria-hidden /> Add calendar
+          </button>
           <button
             onClick={() => setModal({ type: "add" })}
             disabled={!!storageError}
@@ -136,6 +162,12 @@ export default function Planner() {
               <button onClick={() => setNotice(null)} className="font-semibold underline underline-offset-2 rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" data-testid="button-dismiss-notice">Dismiss</button>
             </div>
           )}
+          {calendarView.conflicts > 0 && <p role="alert" className="mb-4 rounded-2xl border border-amber-400 bg-amber-50 p-4 text-sm text-amber-950">
+            {calendarView.conflicts} study {calendarView.conflicts === 1 ? "session overlaps" : "sessions overlap"} an added calendar. Existing sessions were kept in place; click a session to move it.
+          </p>}
+          <p className="mb-3 text-xs text-muted-foreground" data-testid="text-calendars">
+            {calendars.length ? `Calendars: ${calendars.map((c) => c.name).join(", ")}` : "No calendars added. Start blank, or add a calendar to plan around your commitments."}
+          </p>
 
           <div className="rounded-3xl border bg-card shadow-[0_8px_30px_-18px_hsl(188_62%_22%/0.35)] overflow-x-auto" data-testid="calendar-week" tabIndex={0} aria-label="Weekly calendar, scrolls horizontally on small screens">
             <div className="min-w-[820px]">
@@ -148,6 +180,17 @@ export default function Planner() {
                       <div className="text-xs uppercase tracking-wider text-muted-foreground">{d.toLocaleDateString([], { weekday: "short" })}</div>
                       <div className={`mx-auto mt-1 grid size-8 place-items-center rounded-full text-sm font-semibold ${isToday ? "bg-accent-foreground text-card" : ""}`}>{d.getDate()}</div>
                        <div className="px-1 mt-1 space-y-1">
+                         {events.filter((e) => {
+                           const dayStart = new Date(d); dayStart.setHours(0, 0, 0, 0);
+                           const dayEnd = addDays(dayStart, 1);
+                           const opening = new Date(d); opening.setHours(WORK_START, 0, 0, 0);
+                           const closing = new Date(d); closing.setHours(WORK_END, 0, 0, 0);
+                           return e.kind !== "work" && +new Date(e.start) < +dayEnd && +new Date(e.end) > +dayStart &&
+                             (e.allDay || +new Date(e.end) <= +opening || +new Date(e.start) >= +closing);
+                         }).map((e) => <button key={e.id} onClick={() => setModal({ type: "event", event: e })}
+                           className="block w-full rounded-md bg-secondary p-1 text-left text-[10px] leading-tight break-words">
+                           {e.allDay ? "All day" : fmtTime(e.start)}: {e.title}
+                         </button>)}
                          {sorted.filter((a) => new Date(a.due).toDateString() === d.toDateString()).map((a) => (
                            <button key={a.id} onClick={() => setModal({ type: "assignment", id: a.id })}
                              data-testid={`deadline-${a.id}`} title={`${a.title} — due ${fmtDue(a.due)}`}
@@ -169,16 +212,19 @@ export default function Planner() {
                 </div>
                 {days.map((d) => {
                   const isToday = d.toDateString() === today.toDateString();
-                  const dayEvents = events.filter((e) => new Date(e.start).toDateString() === d.toDateString());
+                  const opening = new Date(d); opening.setHours(WORK_START, 0, 0, 0);
+                  const closing = new Date(d); closing.setHours(WORK_END, 0, 0, 0);
+                  const dayEvents = events.filter((e) => !e.allDay && +new Date(e.start) < +closing && +new Date(e.end) > +opening);
                   return (
                     <div key={+d} className={`relative border-l ${isToday ? "bg-accent/30" : ""}`} style={{ height: HOUR * HOURS.length }}>
                       {HOURS.map((h, i) => (
                         <div key={h} className="absolute inset-x-0 border-t border-border/70" style={{ top: i * HOUR }} />
                       ))}
                       {dayEvents.map((e) => {
-                        const s = new Date(e.start);
-                        const top = ((s.getHours() - WORK_START) * 60 + s.getMinutes()) / 60 * HOUR;
-                        const height = Math.max(mins(e) / 60 * HOUR - 3, 20);
+                        const visibleStart = Math.max(+new Date(e.start), +opening);
+                        const visibleEnd = Math.min(+new Date(e.end), +closing);
+                        const top = (visibleStart - +opening) / 3600000 * HOUR;
+                        const height = Math.max((visibleEnd - visibleStart) / 3600000 * HOUR - 3, 20);
                         return (
                           <button
                             key={e.id}
@@ -228,7 +274,7 @@ export default function Planner() {
                 <svg viewBox="0 0 120 40" className="w-28 mb-3" aria-hidden="true">
                   {[0, 1, 2, 3, 4].map((i) => <rect key={i} x={4 + i * 24} y={30 - (i % 3) * 8} width="14" height="8" rx="4" fill="hsl(14 85% 86%)" />)}
                 </svg>
-                Nothing planned yet. Add a deadline and Tempo will find quiet gaps between your classes.
+                Nothing planned yet. Add a deadline and Tempo will find study time around any calendars you add.
               </div>
             ) : (
               <ul className="mt-3 space-y-2">
@@ -251,17 +297,37 @@ export default function Planner() {
           </section>
           <section className="rounded-3xl bg-primary text-primary-foreground p-5 text-sm space-y-2" data-testid="panel-prototype">
             <h2 className="font-serif text-lg font-semibold flex items-center gap-2"><Info className="size-4" aria-hidden /> A local prototype</h2>
-            <p className="opacity-90">Everything stays in this browser. There is no account and no server, and the estimate is a simple demo rule, not real AI.</p>
+            <p className="opacity-90">Your plans and added calendars stay in this browser. Public calendar links are downloaded through our server for a one-time import, not live sync. Estimates are simulated, not real AI.</p>
             <p className="opacity-90">Sessions are spread across available days between 8 am and 9 pm, with breaks whenever possible. We aim to finish at least 24 hours before your deadline, using later time only if needed.</p>
           </section>
         </aside>
       </main>
+
+      <Dialog open={modal?.type === "calendar"} onOpenChange={(o) => !o && setModal(null)}>
+        <DialogContent className="max-w-lg rounded-3xl max-h-[92dvh] overflow-y-auto" data-testid="dialog-calendar">
+          {modal?.type === "calendar" && <AddCalendar hasSample={calendars.some((c) => c.type === "sample")} onAdd={(calendar) => {
+            if (storageError) throw new Error(storageError);
+            if (calendars.length >= 10) throw new Error("Up to 10 calendars can be added in this prototype.");
+            if (calendars.some((c) => c.id === calendar.id || c.type === "import" && calendar.type === "import" && c.content === calendar.content)) {
+              throw new Error("This calendar has already been added.");
+            }
+            calendarEvents([calendar], new Date(), addDays(new Date(), 366));
+            const next = [...calendars, calendar];
+            saveCalendars(next);
+            setCalendars(next);
+            setModal(null);
+            setNoticeIsWarning(false);
+            setNotice(`Added "${calendar.name}". New study sessions will be scheduled around it.`);
+          }} />}
+        </DialogContent>
+      </Dialog>
 
       <Dialog open={modal?.type === "add"} onOpenChange={(o) => !o && setModal(null)}>
         <DialogContent className="max-w-lg rounded-3xl max-h-[92dvh] overflow-y-auto" data-testid="dialog-add">
           {modal?.type === "add" && (
             <AddFlow
               assignments={assignments}
+              calendars={calendars}
               onClose={() => setModal(null)}
               onDone={(a, list) => {
                 setAssignments(list);
@@ -286,10 +352,10 @@ export default function Planner() {
               </DialogHeader>
               <ul className="space-y-2 text-sm">
                 <li className="flex gap-2"><CalendarDays className="size-4 mt-0.5" aria-hidden />{fmtDay(modal.event.start)}</li>
-                <li className="flex gap-2"><Clock className="size-4 mt-0.5" aria-hidden />{fmtTime(modal.event.start)} – {fmtTime(modal.event.end)} ({durationLabel(mins(modal.event))})</li>
+                <li className="flex gap-2"><Clock className="size-4 mt-0.5" aria-hidden />{modal.event.allDay ? "All-day event" : `${fmtDue(modal.event.start)} – ${fmtDue(modal.event.end)} (${durationLabel(mins(modal.event))})`}</li>
                 {modal.event.location && <li className="flex gap-2"><MapPin className="size-4 mt-0.5" aria-hidden />{modal.event.location}</li>}
               </ul>
-              <p className="text-xs text-muted-foreground">Demo schedule. Tempo works around it when planning.</p>
+              <p className="text-xs text-muted-foreground">Added calendar event. Tempo works around busy events when planning new study sessions.</p>
             </>
           )}
         </DialogContent>
@@ -301,7 +367,8 @@ export default function Planner() {
             assignment={sessionAssignment} session={selectedSession}
             onAssignment={() => setModal({ type: "assignment", id: sessionAssignment.id })}
             onMove={(start) => {
-              const list = moveSession(assignments, sessionAssignment.id, selectedSession.id, start);
+              const list = moveSession(assignments, sessionAssignment.id, selectedSession.id, start, new Date(),
+                calendarEvents(calendars, new Date(start), addDays(new Date(start), 1)));
               saveSessionChange(list, "Moved this study session. All other sessions are unchanged.");
               setWeekStart(startOfWeek(new Date(start)));
             }}
@@ -388,8 +455,9 @@ function NavBtn({ label, onClick, testId, children }: { label: string; onClick: 
 
 const fieldCls = "h-11 w-full rounded-xl border border-input bg-background px-3 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring";
 
-function AddFlow({ assignments, onClose, onDone }: {
+function AddFlow({ assignments, calendars, onClose, onDone }: {
   assignments: Assignment[];
+  calendars: AddedCalendar[];
   onClose: () => void;
   onDone: (a: Assignment, list: Assignment[]) => void;
 }) {
@@ -442,7 +510,7 @@ function AddFlow({ assignments, onClose, onDone }: {
     try {
       const planned = scheduleAssignment(
         { id: assignmentId, title, description: description.trim(), due: new Date(due).toISOString(), estimatedMinutes: minutes },
-        assignments,
+        assignments, new Date(), calendarEvents(calendars, new Date(), new Date(due)),
       );
       const list = [...assignments, planned];
       saveAssignments(list);

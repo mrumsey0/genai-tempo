@@ -5,6 +5,24 @@
  * API specification
  * OpenAPI spec version: 0.1.0
  */
+export interface CalendarLink {
+  /**
+     * @minLength 1
+     * @maxLength 4096
+     */
+  url: string;
+}
+
+export interface CalendarFeed {
+  /** @maxLength 1048576 */
+  content: string;
+}
+
+export interface CalendarImportError {
+  error: string;
+}
+
 export interface HealthStatus {
   status: string;
 }
+
