@@ -4,13 +4,15 @@ import { importCalendar } from "@workspace/api-client-react";
 import { DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { importedCalendar, type AddedCalendar } from "@/lib/calendars";
 
-export function AddCalendar({ hasSample, onAdd }: {
+export function AddCalendar({ hasSample, onAdd, onDeleteSample }: {
   hasSample: boolean;
   onAdd: (calendar: AddedCalendar) => void;
+  onDeleteSample: () => void;
 }) {
   const [url, setUrl] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [confirmDelete, setConfirmDelete] = useState(false);
   const button = "rounded-full border px-4 py-2 text-sm font-semibold disabled:opacity-50 focus-visible:ring-2 focus-visible:ring-ring";
   return (
     <div className="space-y-5">
@@ -42,10 +44,22 @@ export function AddCalendar({ hasSample, onAdd }: {
       <div className="rounded-2xl border bg-secondary/40 p-4 space-y-3">
         <h3 className="flex gap-2 items-center font-semibold text-sm"><CalendarDays className="size-4" aria-hidden />Try the sample calendar</h3>
         <p className="text-sm text-muted-foreground">A ready-made week of recurring classes, lunch breaks, and campus commitments.</p>
-        <button className={button} data-testid="button-use-sample" disabled={busy || hasSample} onClick={() => {
+        {hasSample ? (
+          confirmDelete ? <div className="space-y-3">
+            <p className="text-sm">Remove the sample classes and commitments? Your assignments, study sessions, and imported calendars will stay unchanged.</p>
+            <div className="flex flex-wrap gap-2">
+              <button className={`${button} text-destructive`} data-testid="button-confirm-delete-sample" disabled={busy} onClick={() => {
+                try { setError(null); onDeleteSample(); }
+                catch (e) { setError(e instanceof Error ? e.message : "Couldn't delete the sample calendar."); }
+              }}>Delete sample calendar</button>
+              <button className={button} disabled={busy} onClick={() => setConfirmDelete(false)}>Keep sample calendar</button>
+            </div>
+          </div> : <button className={`${button} text-destructive`} data-testid="button-delete-sample" disabled={busy}
+            onClick={() => { setError(null); setConfirmDelete(true); }}>Delete sample calendar</button>
+        ) : <button className={button} data-testid="button-use-sample" disabled={busy} onClick={() => {
           try { setError(null); onAdd({ id: "sample", type: "sample", name: "Sample student calendar" }); }
           catch (e) { setError(e instanceof Error ? e.message : "Couldn't save the sample calendar."); }
-        }}>{hasSample ? "Sample calendar already added" : "Use sample calendar"}</button>
+        }}>Use sample calendar</button>}
       </div>
       {error && <p role="alert" className="rounded-xl bg-destructive/10 p-3 text-sm text-destructive">{error}</p>}
     </div>

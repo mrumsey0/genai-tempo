@@ -318,6 +318,14 @@ export default function Planner() {
             setModal(null);
             setNoticeIsWarning(false);
             setNotice(`Added "${calendar.name}". New study sessions will be scheduled around it.`);
+          }} onDeleteSample={() => {
+            if (storageError) throw new Error(storageError);
+            const next = calendars.filter((c) => c.type !== "sample");
+            saveCalendars(next);
+            setCalendars(next);
+            setModal(null);
+            setNoticeIsWarning(false);
+            setNotice("Deleted the sample calendar. Your assignments, study sessions, and imported calendars were kept.");
           }} />}
         </DialogContent>
       </Dialog>
