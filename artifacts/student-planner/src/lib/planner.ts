@@ -24,6 +24,51 @@ export function estimateMinutes(title: string, description: string): number {
   const text = `${title} ${description}`.toLowerCase();
   return text.includes("essay") ? 300 : text.includes("homework") ? 30 : 60;
 }
+export function estimateExplanation(title: string, description: string): string {
+  const text = `${title} ${description}`.toLowerCase();
+  if (text.includes("essay")) return 'The title or description contains “essay”, so this demo allows 5 hours for planning, drafting, and revision.';
+  if (text.includes("homework")) return 'The title or description contains “homework”, so this demo uses a 30-minute practice session.';
+  return 'No essay or homework keyword was found, so this demo starts with a general 1-hour estimate. Adjust it for your workload.';
+}
+export function scheduledMinutes(assignment: Assignment): number {
+  return assignment.blocks.reduce((sum, block) => sum + (+new Date(block.end) - +new Date(block.start)) / MINUTE, 0);
+}
+export function shortfallWarning(assignment: Assignment): string | null {
+  const remaining = assignment.estimatedMinutes - scheduledMinutes(assignment);
+  return remaining > 0
+    ? `${durationLabel(scheduledMinutes(assignment))} of ${durationLabel(assignment.estimatedMinutes)} scheduled. ${durationLabel(remaining)} remains unscheduled. There isn't enough scheduled time to complete this assignment before its deadline.`
+    : null;
+}
+export function removeSession(assignments: Assignment[], assignmentId: string, sessionId: string): Assignment[] {
+  const assignment = assignments.find((a) => a.id === assignmentId);
+  if (!assignment?.blocks.some((b) => b.id === sessionId)) throw new Error("This study session no longer exists.");
+  return assignments.map((a) => a.id === assignmentId ? { ...a, blocks: a.blocks.filter((b) => b.id !== sessionId) } : a);
+}
+export function moveSession(
+  assignments: Assignment[], assignmentId: string, sessionId: string, startInput: string, now = new Date(),
+): Assignment[] {
+  const assignment = assignments.find((a) => a.id === assignmentId);
+  const block = assignment?.blocks.find((b) => b.id === sessionId);
+  if (!assignment || !block) throw new Error("This study session no longer exists.");
+  const start = new Date(startInput);
+  const end = new Date(+start + (+new Date(block.end) - +new Date(block.start)));
+  if (!Number.isFinite(+start) || +start < +now) throw new Error("Choose a start time in the future.");
+  if (start.getMinutes() % 30 || start.getSeconds() || start.getMilliseconds()) throw new Error("Choose a start time on the hour or half-hour.");
+  const closing = new Date(start);
+  closing.setHours(WORK_END, 0, 0, 0);
+  if (start.getHours() < WORK_START || +end > +closing) throw new Error("Sessions must fit between 8 am and 9 pm.");
+  if (+end > +new Date(assignment.due)) throw new Error("The whole session must finish on or before the assignment deadline.");
+  const busy = [...demoEvents(start, end), ...assignments.flatMap((a) =>
+    a.blocks.filter((b) => !(a.id === assignmentId && b.id === sessionId)))];
+  if (busy.some((b) => +start < +new Date(b.end) && +end > +new Date(b.start))) {
+    throw new Error("That time overlaps a class, commitment, or another study session.");
+  }
+  return assignments.map((a) => a.id !== assignmentId ? a : {
+    ...a,
+    blocks: a.blocks.map((b) => b.id === sessionId ? { ...b, start: start.toISOString(), end: end.toISOString() } : b)
+      .sort((a, b) => +new Date(a.start) - +new Date(b.start)),
+  });
+}
 export function startOfWeek(date: Date): Date {
   const result = new Date(date);
   result.setHours(0, 0, 0, 0);
@@ -90,8 +135,6 @@ export function scheduleAssignment(
   if (!Number.isFinite(input.estimatedMinutes) || input.estimatedMinutes < 30 || input.estimatedMinutes % 30 !== 0) {
     throw new Error("Choose an estimate of at least 30 minutes, in 30-minute increments.");
   }
-  // Reject plainly impossible totals before generating a potentially large date range.
-  if (input.estimatedMinutes * MINUTE > +deadline - +now) throw new Error("There isn't enough time before this deadline. Reduce the estimate or choose a later deadline.");
   const busy = [
     ...demoEvents(now, deadline),
     ...existing.flatMap((assignment) => assignment.blocks),
@@ -168,7 +211,9 @@ export function scheduleAssignment(
       }
     }
   }
-  throw new Error(`Only ${durationLabel(input.estimatedMinutes - result.remaining)} is free before this deadline (8 am–9 pm). Reduce the estimate or choose a later deadline. Nothing has been scheduled.`);
+  // The last pass uses every available slot up to the deadline. Keep this
+  // partial plan (including an empty plan) rather than rejecting the assignment.
+  return { ...input, title: input.title.trim(), due: deadline.toISOString(), blocks: result.blocks };
 }
 
 export function loadAssignments(): { assignments: Assignment[]; error?: string } {
@@ -181,13 +226,13 @@ export function loadAssignments(): { assignments: Assignment[]; error?: string }
       typeof item.description === "string" && Number.isFinite(+new Date(item.due)) &&
       Number.isFinite(item.estimatedMinutes) && item.estimatedMinutes >= 30 &&
       item.estimatedMinutes % 30 === 0 && Array.isArray(item.blocks) &&
-      item.blocks.every((block: CalendarEvent) => block.assignmentId === item.id &&
+      item.blocks.every((block: CalendarEvent) => block && block.assignmentId === item.id &&
         typeof block.id === "string" && typeof block.title === "string" && block.kind === "work" &&
         Number.isFinite(+new Date(block.start)) && Number.isFinite(+new Date(block.end)) &&
         [30, 60].includes((+new Date(block.end) - +new Date(block.start)) / MINUTE) &&
         +new Date(block.end) <= +new Date(item.due)) &&
       item.blocks.reduce((total: number, block: CalendarEvent) =>
-        total + (+new Date(block.end) - +new Date(block.start)) / MINUTE, 0) === item.estimatedMinutes
+        total + (+new Date(block.end) - +new Date(block.start)) / MINUTE, 0) <= item.estimatedMinutes
     )) throw new Error("Saved assignments couldn't be read. Your saved data has not been overwritten.");
     return { assignments: data as Assignment[] };
   } catch (error) {

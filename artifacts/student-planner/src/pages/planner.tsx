@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { CalendarDays, ChevronLeft, ChevronRight, Clock, MapPin, Minus, Plus, Trash2, TriangleAlert, Sparkles, Info } from "lucide-react";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { SessionEditor } from "@/components/session-editor";
 import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
@@ -9,6 +10,7 @@ import {
   type Assignment, type CalendarEvent, WORK_START, WORK_END,
   addDays, demoEvents, durationLabel, estimateMinutes, loadAssignments,
   localInput, saveAssignments, scheduleAssignment, startOfWeek,
+  estimateExplanation, scheduledMinutes, shortfallWarning, moveSession, removeSession,
 } from "@/lib/planner";
 
 const HOUR = 56;
@@ -28,7 +30,7 @@ const KIND: Record<CalendarEvent["kind"], string> = {
 };
 const KIND_LABEL = { class: "Class", meeting: "Commitment", work: "Study session" } as const;
 
-type Modal = { type: "add" } | { type: "event"; event: CalendarEvent } | { type: "assignment"; id: string } | null;
+type Modal = { type: "add" } | { type: "event"; event: CalendarEvent } | { type: "assignment"; id: string } | { type: "session"; assignmentId: string; sessionId: string } | null;
 
 export default function Planner() {
   const [initial] = useState(() => loadAssignments());
@@ -37,6 +39,7 @@ export default function Planner() {
   const [weekStart, setWeekStart] = useState(() => startOfWeek(new Date()));
   const [modal, setModal] = useState<Modal>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  const [noticeIsWarning, setNoticeIsWarning] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState<Assignment | null>(null);
   const [deleteError, setDeleteError] = useState<string | null>(null);
 
@@ -60,10 +63,21 @@ export default function Planner() {
     setAssignments((cur) => cur.filter((x) => x.id !== a.id));
     setConfirmDelete(null);
     setModal(null);
+    setNoticeIsWarning(false);
     setNotice(`Removed "${a.title}" and its ${a.blocks.length} sessions.`);
   }
 
   const detailAssignment = modal?.type === "assignment" ? assignments.find((a) => a.id === modal.id) : undefined;
+  const sessionAssignment = modal?.type === "session" ? assignments.find((a) => a.id === modal.assignmentId) : undefined;
+  const selectedSession = modal?.type === "session" ? sessionAssignment?.blocks.find((b) => b.id === modal.sessionId) : undefined;
+  function saveSessionChange(list: Assignment[], message: string) {
+    if (storageError) throw new Error(storageError);
+    saveAssignments(list);
+    setAssignments(list);
+    setModal(sessionAssignment ? { type: "assignment", id: sessionAssignment.id } : null);
+    setNoticeIsWarning(false);
+    setNotice(message);
+  }
 
   return (
     <div className="min-h-[100dvh] bg-background">
@@ -117,7 +131,7 @@ export default function Planner() {
             </div>
           )}
           {notice && (
-            <div role="status" data-testid="status-notice" className="mb-4 flex items-center justify-between gap-3 rounded-2xl border bg-[hsl(150_30%_90%)] px-4 py-3 text-sm animate-in fade-in slide-in-from-top-2">
+            <div role={noticeIsWarning ? "alert" : "status"} data-testid="status-notice" className={`mb-4 flex items-center justify-between gap-3 rounded-2xl border px-4 py-3 text-sm animate-in fade-in slide-in-from-top-2 ${noticeIsWarning ? "border-amber-400 bg-amber-50 text-amber-950" : "bg-[hsl(150_30%_90%)]"}`}>
               <span>{notice}</span>
               <button onClick={() => setNotice(null)} className="font-semibold underline underline-offset-2 rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" data-testid="button-dismiss-notice">Dismiss</button>
             </div>
@@ -133,6 +147,16 @@ export default function Planner() {
                     <div key={+d} className="py-3 text-center border-l" data-testid={`header-day-${d.getDay()}`}>
                       <div className="text-xs uppercase tracking-wider text-muted-foreground">{d.toLocaleDateString([], { weekday: "short" })}</div>
                       <div className={`mx-auto mt-1 grid size-8 place-items-center rounded-full text-sm font-semibold ${isToday ? "bg-accent-foreground text-card" : ""}`}>{d.getDate()}</div>
+                       <div className="px-1 mt-1 space-y-1">
+                         {sorted.filter((a) => new Date(a.due).toDateString() === d.toDateString()).map((a) => (
+                           <button key={a.id} onClick={() => setModal({ type: "assignment", id: a.id })}
+                             data-testid={`deadline-${a.id}`} title={`${a.title} — due ${fmtDue(a.due)}`}
+                             className="block w-full rounded-md border border-destructive/40 bg-destructive/10 px-1 py-1 text-left text-[10px] leading-tight text-destructive focus-visible:ring-2 focus-visible:ring-ring">
+                             <span className="block font-semibold break-words">Due: {a.title}</span>
+                             <span>{fmtTime(a.due)}</span>
+                           </button>
+                         ))}
+                       </div>
                     </div>
                   );
                 })}
@@ -159,7 +183,7 @@ export default function Planner() {
                           <button
                             key={e.id}
                             data-testid={`event-${e.id}`}
-                            onClick={() => setModal(e.kind === "work" ? { type: "assignment", id: e.assignmentId! } : { type: "event", event: e })}
+                            onClick={() => setModal(e.kind === "work" ? { type: "session", assignmentId: e.assignmentId!, sessionId: e.id } : { type: "event", event: e })}
                             style={{ top: top + 1, height }}
                             className={`absolute inset-x-1 overflow-hidden rounded-xl border-l-4 px-2 py-1 text-left text-xs leading-tight transition hover:-translate-y-px hover:shadow-md active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${KIND[e.kind]}`}
                             aria-label={`${e.title}, ${KIND_LABEL[e.kind]}, ${fmtTime(e.start)} to ${fmtTime(e.end)}`}
@@ -169,6 +193,18 @@ export default function Planner() {
                           </button>
                         );
                       })}
+                      {sorted.filter((a) => {
+                        const due = new Date(a.due);
+                        return due.toDateString() === d.toDateString() && due.getHours() >= WORK_START && due.getHours() < WORK_END;
+                      }).map((a) => {
+                        const due = new Date(a.due);
+                        return <button key={`line-${a.id}`} aria-label={`${a.title} deadline at ${fmtTime(a.due)}`}
+                          onClick={() => setModal({ type: "assignment", id: a.id })}
+                          className="absolute inset-x-0 z-10 border-t-2 border-dashed border-destructive text-right text-[9px] text-destructive focus-visible:ring-2 focus-visible:ring-ring"
+                          style={{ top: ((due.getHours() - WORK_START) + due.getMinutes() / 60) * HOUR }}>
+                          <span className="bg-card px-1">Due {fmtTime(a.due)}</span>
+                        </button>;
+                      })}
                     </div>
                   );
                 })}
@@ -177,6 +213,7 @@ export default function Planner() {
           </div>
 
           <ul className="mt-4 flex flex-wrap gap-x-5 gap-y-2 text-xs text-muted-foreground" aria-label="Legend">
+            <li className="flex items-center gap-2"><span className="w-3 border-t-2 border-dashed border-destructive" />Assignment deadline</li>
             {(["class", "meeting", "work"] as const).map((k) => (
               <li key={k} className="flex items-center gap-2"><span className={`size-3 rounded border-l-4 ${KIND[k]}`} />{KIND_LABEL[k]}</li>
             ))}
@@ -204,7 +241,8 @@ export default function Planner() {
                     >
                       <span className="block font-semibold text-sm truncate">{a.title}</span>
                       <span className="block text-xs text-muted-foreground">Due {fmtDue(a.due)}</span>
-                      <span className="block text-xs mt-0.5">{durationLabel(a.estimatedMinutes)} across {a.blocks.length} sessions</span>
+                      <span className="block text-xs mt-0.5">{durationLabel(scheduledMinutes(a))} / {durationLabel(a.estimatedMinutes)} scheduled · {a.blocks.length} sessions</span>
+                      {shortfallWarning(a) && <span className="block text-xs text-destructive mt-1">{durationLabel(a.estimatedMinutes - scheduledMinutes(a))} unscheduled</span>}
                     </button>
                   </li>
                 ))}
@@ -227,8 +265,9 @@ export default function Planner() {
               onClose={() => setModal(null)}
               onDone={(a, list) => {
                 setAssignments(list);
-                setWeekStart(startOfWeek(new Date(a.blocks[0].start)));
-                setNotice(`Planned "${a.title}" in ${a.blocks.length} sessions.`);
+                setWeekStart(startOfWeek(new Date(a.blocks[0]?.start ?? a.due)));
+                setNoticeIsWarning(!!shortfallWarning(a));
+                setNotice(shortfallWarning(a) ?? `Planned "${a.title}" in ${a.blocks.length} sessions.`);
                 setModal(null);
               }}
             />
@@ -256,6 +295,24 @@ export default function Planner() {
         </DialogContent>
       </Dialog>
 
+      <Dialog open={modal?.type === "session"} onOpenChange={(o) => !o && setModal(null)}>
+        <DialogContent className="max-w-lg rounded-3xl max-h-[92dvh] overflow-y-auto" data-testid="dialog-session">
+          {sessionAssignment && selectedSession && <SessionEditor key={selectedSession.id}
+            assignment={sessionAssignment} session={selectedSession}
+            onAssignment={() => setModal({ type: "assignment", id: sessionAssignment.id })}
+            onMove={(start) => {
+              const list = moveSession(assignments, sessionAssignment.id, selectedSession.id, start);
+              saveSessionChange(list, "Moved this study session. All other sessions are unchanged.");
+              setWeekStart(startOfWeek(new Date(start)));
+            }}
+            onDelete={() => saveSessionChange(
+              removeSession(assignments, sessionAssignment.id, selectedSession.id),
+              "Deleted this study session. The assignment and its other sessions were kept.",
+            )}
+          />}
+        </DialogContent>
+      </Dialog>
+
       <Dialog open={modal?.type === "assignment"} onOpenChange={(o) => !o && setModal(null)}>
         <DialogContent className="max-w-md rounded-3xl max-h-[92dvh] overflow-y-auto" data-testid="dialog-assignment">
           {detailAssignment && (
@@ -263,20 +320,23 @@ export default function Planner() {
               <DialogHeader>
                 <p className="text-xs uppercase tracking-wider text-muted-foreground">Assignment</p>
                 <DialogTitle className="font-serif text-2xl">{detailAssignment.title}</DialogTitle>
-                <DialogDescription>Due {fmtDue(detailAssignment.due)} · {durationLabel(detailAssignment.estimatedMinutes)} planned</DialogDescription>
+                <DialogDescription>Due {fmtDue(detailAssignment.due)} · {durationLabel(scheduledMinutes(detailAssignment))} of {durationLabel(detailAssignment.estimatedMinutes)} scheduled</DialogDescription>
               </DialogHeader>
               {detailAssignment.description && <p className="text-sm whitespace-pre-wrap">{detailAssignment.description}</p>}
+              {shortfallWarning(detailAssignment) && <p role="alert" className="rounded-xl bg-destructive/10 p-3 text-sm text-destructive">{shortfallWarning(detailAssignment)}</p>}
+              <button onClick={() => { setWeekStart(startOfWeek(new Date(detailAssignment.due))); setModal(null); }} className="text-sm font-semibold underline underline-offset-2">Show deadline on calendar</button>
               <h3 className="text-sm font-semibold">Sessions ({detailAssignment.blocks.length})</h3>
+              {detailAssignment.blocks.length === 0 && <p className="text-sm text-muted-foreground">No study sessions scheduled. Your assignment and deadline are still saved.</p>}
               <ol className="space-y-1.5" data-testid="list-sessions">
                 {detailAssignment.blocks.map((b) => (
                   <li key={b.id}>
                     <button
-                      onClick={() => { setWeekStart(startOfWeek(new Date(b.start))); setModal(null); }}
+                      onClick={() => setModal({ type: "session", assignmentId: detailAssignment.id, sessionId: b.id })}
                       data-testid={`session-${b.id}`}
                       className="w-full flex justify-between gap-3 rounded-xl bg-accent/60 px-3 py-2 text-sm text-left transition hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                     >
                       <span>{fmtDay(b.start)}</span>
-                      <span className="text-muted-foreground">{fmtTime(b.start)} – {fmtTime(b.end)}</span>
+                      <span className="text-muted-foreground">{fmtTime(b.start)} – {fmtTime(b.end)} · Manage</span>
                     </button>
                   </li>
                 ))}
@@ -341,7 +401,7 @@ function AddFlow({ assignments, onClose, onDone }: {
   const [hours, setHours] = useState("1");
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
-  const idRef = useRef(`a-${Date.now().toString(36)}`);
+  const [assignmentId] = useState(() => `a-${crypto.randomUUID()}`);
   const headingRef = useRef<HTMLHeadingElement>(null);
   const due = `${date}T${time}`;
 
@@ -381,7 +441,7 @@ function AddFlow({ assignments, onClose, onDone }: {
     setSaving(true);
     try {
       const planned = scheduleAssignment(
-        { id: idRef.current, title, description: description.trim(), due: new Date(due).toISOString(), estimatedMinutes: minutes },
+        { id: assignmentId, title, description: description.trim(), due: new Date(due).toISOString(), estimatedMinutes: minutes },
         assignments,
       );
       const list = [...assignments, planned];
@@ -421,6 +481,7 @@ function AddFlow({ assignments, onClose, onDone }: {
           <DialogTitle ref={headingRef} tabIndex={-1} className="font-serif text-2xl outline-none flex items-center gap-2"><Sparkles className="size-5 text-accent-foreground" aria-hidden />Here's the plan size</DialogTitle>
           <DialogDescription>"{title.trim()}", due {fmtDue(new Date(due).toISOString())}. Adjust the hours if our guess is off.</DialogDescription>
         </DialogHeader>
+        <p className="rounded-xl bg-secondary p-3 text-sm" data-testid="text-estimate-explanation">{estimateExplanation(title, description)} This is a keyword-based demo, not an AI assessment.</p>
         <div>
           <label htmlFor="est-hours" className="text-sm font-semibold">Estimated hours</label>
           <div className="mt-1.5 flex items-center gap-2">
@@ -433,6 +494,7 @@ function AddFlow({ assignments, onClose, onDone }: {
           </p>
         </div>
         {errorBox}
+        <p className="text-xs text-muted-foreground">If the full estimate cannot fit, we’ll save the assignment, schedule what fits before its deadline, and warn you about the unscheduled time.</p>
         <div className="flex flex-wrap gap-2 justify-end">
           <button type="button" onClick={() => { setError(null); setStep("form"); }} data-testid="button-back-edit" className="h-10 px-5 rounded-full border text-sm font-semibold hover:bg-secondary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">Back to edit</button>
           <button type="submit" disabled={saving || !hoursValid} data-testid="button-schedule" className="h-10 px-5 rounded-full bg-primary text-primary-foreground text-sm font-semibold active:scale-95 disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2">Schedule sessions</button>

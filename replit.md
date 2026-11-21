@@ -52,9 +52,11 @@ User-defined estimation rules: case-insensitive "essay" anywhere in the title/de
 ## Gotchas
 
 - Working hours are 8 am–9 pm every day, in the browser's local timezone; estimates must be positive 30-minute increments.
-- Scheduling starts from now, avoids all recurring events and existing sessions, and commits only when the entire estimate fits before the deadline.
+- Scheduling starts from now and avoids all recurring events and existing sessions. If the full estimate cannot fit, save every available session before the deadline, keep the assignment even if no sessions fit, and show the unscheduled shortfall. Never schedule past the deadline.
 - Spread new assignment sessions across available days; aim to finish at least 24 hours before the due time. Prefer 60-minute breaks, then 30-minute breaks, then contiguous blocks only when necessary to fit. Preserve the early-finish buffer whenever the full estimate can fit, and use the actual deadline only when it cannot. Previously saved assignments are not automatically moved.
 - Storage errors must be visible; failed saves must not appear successful or overwrite corrupt stored data.
+- Assignment deadlines appear on the calendar, including deadlines outside study hours. Individual sessions can be moved or deleted without deleting the assignment; moving preserves duration and rejects conflicts, past times, out-of-hours times, and deadline overruns.
+- Explain estimates honestly using the matching keyword rule; do not imply a real AI assessment.
 
 ## Pointers
 

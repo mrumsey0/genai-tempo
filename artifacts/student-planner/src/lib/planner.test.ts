@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { estimateMinutes, scheduleAssignment, demoEvents, startOfWeek, addDays, loadAssignments, saveAssignments, STORAGE_KEY } from "./planner.ts";
+import { estimateMinutes, estimateExplanation, scheduleAssignment, demoEvents, startOfWeek, addDays, loadAssignments, saveAssignments, STORAGE_KEY, moveSession, removeSession, scheduledMinutes, shortfallWarning } from "./planner.ts";
 
 const now = new Date(2026, 9, 5, 8, 0); // Monday, local time.
 const input = (minutes = 300, due = new Date(2026, 9, 8, 18, 0)) => ({
@@ -90,10 +90,64 @@ test("rejects invalid title, duration, and past deadlines", () => {
     { ...input(), due: "bad" },
   ]) assert.throws(() => scheduleAssignment(bad, [], now));
 });
-test("impossible schedule is rejected without mutating existing assignments", () => {
+test("insufficient time saves all available work before deadline without mutating existing assignments", () => {
   const existing: ReturnType<typeof scheduleAssignment>[] = [];
-  assert.throws(() => scheduleAssignment(input(90, new Date(2026, 9, 5, 10)), existing, now), /Only 1h/);
+  const a = scheduleAssignment(input(90, new Date(2026, 9, 5, 10)), existing, now);
+  assert.equal(minutes(a), 60);
+  assert.equal(a.estimatedMinutes, 90);
+  assert.match(shortfallWarning(a)!, /30m remains unscheduled/);
+  assert.ok(a.blocks.every((b) => +new Date(b.end) <= +new Date(a.due)));
   assert.deepEqual(existing, []);
+});
+test("even an estimate larger than elapsed time keeps all available slots", () => {
+  const a = scheduleAssignment(input(300, new Date(2026, 9, 5, 8, 45)), [], now);
+  assert.equal(minutes(a), 30);
+  assert.equal(a.blocks[0]!.end, new Date(2026, 9, 5, 8, 30).toISOString());
+});
+test("zero available slots still saves the assignment with an explicit warning", () => {
+  const a = scheduleAssignment(input(60, new Date(2026, 9, 5, 9, 30)), [], new Date(2026, 9, 5, 9));
+  assert.equal(a.blocks.length, 0);
+  assert.match(shortfallWarning(a)!, /1h remains unscheduled/);
+});
+test("estimate explanations match essay precedence, homework, and default rules", () => {
+  assert.match(estimateExplanation("Homework ESSAY", ""), /5 hours/);
+  assert.match(estimateExplanation("", "HOMEWORK"), /30-minute/);
+  assert.match(estimateExplanation("Read chapter 2", ""), /general 1-hour/);
+});
+test("moving one session preserves duration, siblings, other assignments, and input", () => {
+  const a = scheduleAssignment(input(180), [], now);
+  const other = scheduleAssignment({ ...input(30), id: "other" }, [a], now);
+  const original = JSON.stringify([a, other]);
+  const list = moveSession([a, other], a.id, a.blocks[0]!.id, "2026-10-05T18:00", now);
+  const moved = list[0]!.blocks.find((b) => b.id === a.blocks[0]!.id)!;
+  assert.equal(moved.start, new Date(2026, 9, 5, 18).toISOString());
+  assert.equal(+new Date(moved.end) - +new Date(moved.start), +new Date(a.blocks[0]!.end) - +new Date(a.blocks[0]!.start));
+  assert.deepEqual(list[0]!.blocks.filter((b) => b.id !== moved.id), a.blocks.filter((b) => b.id !== moved.id));
+  assert.deepEqual(list[1], other);
+  assert.equal(JSON.stringify([a, other]), original);
+});
+test("moving rejects past, off-grid, outside hours, after deadline, and class conflicts", () => {
+  const a = scheduleAssignment(input(120), [], now);
+  for (const date of ["bad", "2026-10-04T18:00", "2026-10-05T18:15", "2026-10-05T07:30", "2026-10-05T20:30", "2026-10-08T18:00", "2026-10-05T09:00"]) {
+    assert.throws(() => moveSession([a], a.id, a.blocks[0]!.id, date, now));
+  }
+  assert.throws(() => moveSession([a], a.id, "missing", "2026-10-05T18:00", now));
+});
+test("moving rejects other study sessions but permits an unchanged valid slot", () => {
+  const a = scheduleAssignment(input(180), [], now);
+  assert.throws(() => moveSession([a], a.id, a.blocks[0]!.id, a.blocks[1]!.start, now), /overlaps/);
+  assert.deepEqual(moveSession([a], a.id, a.blocks[0]!.id, a.blocks[0]!.start, now), [a]);
+});
+test("deleting individual sessions keeps assignment, estimate, siblings, and finally an empty plan", () => {
+  const a = scheduleAssignment(input(120), [], now);
+  const list = removeSession([a], a.id, a.blocks[0]!.id);
+  assert.equal(list[0]!.blocks.length, a.blocks.length - 1);
+  assert.equal(list[0]!.estimatedMinutes, 120);
+  assert.equal(a.blocks.length, 2);
+  assert.equal(scheduledMinutes(list[0]!), 60);
+  const empty = removeSession(list, a.id, list[0]!.blocks[0]!.id);
+  assert.equal(empty.length, 1);
+  assert.equal(empty[0]!.blocks.length, 0);
 });
 test("half-hour before exact deadline is allowed", () => {
   const a = scheduleAssignment(input(30, new Date(2026, 9, 5, 8, 30)), [], now);
@@ -124,6 +178,13 @@ test("storage saves, reloads, and deletes complete assignments", () => {
   const assignment = scheduleAssignment(input(), [], now);
   saveAssignments([assignment]);
   assert.deepEqual(loadAssignments().assignments, [assignment]);
+  const partial = scheduleAssignment(input(300, new Date(2026, 9, 5, 10)), [], now);
+  const empty = { ...assignment, id: "empty", blocks: [] };
+  const moved = moveSession([assignment], assignment.id, assignment.blocks[0]!.id, "2026-10-05T18:00", now)[0]!;
+  saveAssignments([partial, empty, moved]);
+  assert.deepEqual(loadAssignments().assignments, [partial, empty, moved]);
+  saveAssignments([{ ...assignment, blocks: [...assignment.blocks, ...assignment.blocks] }]);
+  assert.ok(loadAssignments().error, "over-scheduled corrupt data must still be rejected");
   saveAssignments([]);
   assert.deepEqual(loadAssignments().assignments, []);
   data.set(STORAGE_KEY, "invalid");
