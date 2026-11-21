@@ -481,7 +481,10 @@ function AddFlow({ assignments, onClose, onDone }: {
           <DialogTitle ref={headingRef} tabIndex={-1} className="font-serif text-2xl outline-none flex items-center gap-2"><Sparkles className="size-5 text-accent-foreground" aria-hidden />Here's the plan size</DialogTitle>
           <DialogDescription>"{title.trim()}", due {fmtDue(new Date(due).toISOString())}. Adjust the hours if our guess is off.</DialogDescription>
         </DialogHeader>
-        <p className="rounded-xl bg-secondary p-3 text-sm" data-testid="text-estimate-explanation">{estimateExplanation(title, description)} This is a keyword-based demo, not an AI assessment.</p>
+        <div className="rounded-xl bg-secondary p-3 text-sm">
+          <p data-testid="text-estimate-explanation">{estimateExplanation(title, description)}</p>
+          <p className="mt-2 text-xs text-muted-foreground">Simulated estimate — adjust it to match your workload.</p>
+        </div>
         <div>
           <label htmlFor="est-hours" className="text-sm font-semibold">Estimated hours</label>
           <div className="mt-1.5 flex items-center gap-2">

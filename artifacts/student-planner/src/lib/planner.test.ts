@@ -110,9 +110,18 @@ test("zero available slots still saves the assignment with an explicit warning",
   assert.match(shortfallWarning(a)!, /1h remains unscheduled/);
 });
 test("estimate explanations match essay precedence, homework, and default rules", () => {
-  assert.match(estimateExplanation("Homework ESSAY", ""), /5 hours/);
-  assert.match(estimateExplanation("", "HOMEWORK"), /30-minute/);
-  assert.match(estimateExplanation("Read chapter 2", ""), /general 1-hour/);
+  const essay = estimateExplanation("Homework ESSAY", "");
+  assert.match(essay, /5 hours/);
+  for (const stage of ["research", "outline", "draft", "revise"]) assert.ok(essay.includes(stage));
+  const homework = estimateExplanation("", "HOMEWORK");
+  assert.match(homework, /30-minute/);
+  assert.match(homework, /check your answers/);
+  const general = estimateExplanation("Read chapter 2", "");
+  assert.match(general, /1 hour/);
+  assert.match(general, /review the requirements/);
+  for (const explanation of [essay, homework, general]) {
+    assert.doesNotMatch(explanation, /keyword|contains|was found/i);
+  }
 });
 test("moving one session preserves duration, siblings, other assignments, and input", () => {
   const a = scheduleAssignment(input(180), [], now);

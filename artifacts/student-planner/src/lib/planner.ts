@@ -26,9 +26,9 @@ export function estimateMinutes(title: string, description: string): number {
 }
 export function estimateExplanation(title: string, description: string): string {
   const text = `${title} ${description}`.toLowerCase();
-  if (text.includes("essay")) return 'The title or description contains “essay”, so this demo allows 5 hours for planning, drafting, and revision.';
-  if (text.includes("homework")) return 'The title or description contains “homework”, so this demo uses a 30-minute practice session.';
-  return 'No essay or homework keyword was found, so this demo starts with a general 1-hour estimate. Adjust it for your workload.';
+  if (text.includes("essay")) return 'An essay usually needs time to research the topic, outline an argument, write a draft, and revise. We’ve allowed 5 hours to work through those stages without rushing.';
+  if (text.includes("homework")) return 'A 30-minute session gives you time to review the instructions, work through a focused set of questions, and check your answers. Add more time if the material is unfamiliar or there are lots of problems.';
+  return 'We’ve allowed 1 hour to review the requirements, work through the main task, and check the result. You may need more time for unfamiliar material or a larger assignment.';
 }
 export function scheduledMinutes(assignment: Assignment): number {
   return assignment.blocks.reduce((sum, block) => sum + (+new Date(block.end) - +new Date(block.start)) / MINUTE, 0);
