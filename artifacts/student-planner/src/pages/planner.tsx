@@ -6,7 +6,7 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } f
 import { SessionEditor } from "@/components/session-editor";
 import { AddCalendar } from "@/components/add-calendar";
 import { EventEditor } from "@/components/event-editor";
-import { validatePersonalEvent, type PersonalEvent } from "@/lib/personal-events";
+import { editPersonalOccurrence, validatePersonalEvent, type PersonalEvent } from "@/lib/personal-events";
 import { calendarEvents, loadCalendars, saveCalendars, type AddedCalendar } from "@/lib/calendars";
 import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
@@ -35,7 +35,7 @@ const KIND: Record<CalendarEvent["kind"], string> = {
 };
 const KIND_LABEL = { class: "Class", meeting: "Commitment", work: "Study session" } as const;
 
-type Modal = { type: "add" } | { type: "calendar" } | { type: "edit-event"; event?: PersonalEvent } | { type: "event"; event: CalendarEvent } | { type: "assignment"; id: string } | { type: "session"; assignmentId: string; sessionId: string } | null;
+type Modal = { type: "add" } | { type: "calendar" } | { type: "edit-event"; event?: PersonalEvent; occurrenceDate?: string } | { type: "event"; event: CalendarEvent } | { type: "assignment"; id: string } | { type: "session"; assignmentId: string; sessionId: string } | null;
 
 export default function Planner() {
   const [initialSettings] = useState(() => loadSettings());
@@ -382,13 +382,15 @@ export default function Planner() {
 
       <Dialog open={modal?.type === "edit-event"} onOpenChange={(o) => !o && setModal(null)}>
         <DialogContent className="max-w-lg rounded-3xl max-h-[92dvh] overflow-y-auto" data-testid="dialog-event-editor">
-          {modal?.type === "edit-event" && <EventEditor event={modal.event}
+          {modal?.type === "edit-event" && <EventEditor event={modal.event} occurrenceDate={modal.occurrenceDate}
             initialDate={+weekStart === +weekOf(new Date()) ? new Date() : weekStart}
             onCancel={() => setModal(null)} onSave={(event) => {
               validatePersonalEvent(event);
               const exists = personalEvents.some((e) => e.id === event.id);
-              savePersonalEvents(exists ? personalEvents.map((e) => e.id === event.id ? event : e) : [...personalEvents, event],
-                `${exists ? "Updated" : "Added"} "${event.title}". New study sessions will work around it; existing sessions were kept.`);
+              savePersonalEvents(exists ? personalEvents.map((e) => e.id === event.id ?
+                modal.occurrenceDate ? editPersonalOccurrence(e, modal.occurrenceDate, event) : event : e) : [...personalEvents, event],
+                modal.occurrenceDate ? "Updated only this occurrence. The rest of the series and existing study sessions were kept." :
+                  `${exists ? "Updated" : "Added"} "${event.title}". New study sessions will work around it; existing sessions were kept.`);
               setWeekStart(weekOf(new Date(event.start)));
             }} />}
         </DialogContent>
@@ -431,7 +433,7 @@ export default function Planner() {
               <p className="text-xs text-muted-foreground">Added calendar event. Tempo works around busy events when planning new study sessions.</p>
               {selectedPersonal && <div className="border-t pt-4 space-y-3">
                 <p className="text-sm text-muted-foreground">{selectedPersonal.repeat === "none" ? "One-time event" :
-                  `Repeats ${selectedPersonal.repeat}${selectedPersonal.until ? ` through ${selectedPersonal.until}` : ""}. Changes apply to the whole series.`}</p>
+                  `Repeats ${selectedPersonal.repeat}${selectedPersonal.until ? ` through ${selectedPersonal.until}` : ""}. Edit just this occurrence or the entire series.`}</p>
                 {eventError && <p role="alert" className="text-sm text-destructive">{eventError}</p>}
                 {eventDelete ? <>
                   <p className="text-sm">Delete {selectedPersonal.repeat === "none" ? "this event" : "this occurrence or the entire series"}? Assignments and study sessions will be kept.</p>
@@ -444,6 +446,12 @@ export default function Planner() {
                     <button className="rounded-full border px-4 py-2 text-sm font-semibold" onClick={() => setEventDelete(false)}>Keep event</button>
                   </div>
                 </> : <div className="flex flex-wrap gap-2">
+                  {selectedPersonal.repeat !== "none" && <button data-testid="button-edit-occurrence"
+                    className="rounded-full border px-4 py-2 text-sm font-semibold"
+                    onClick={() => setModal({ type: "edit-event", occurrenceDate: modal.event.occurrenceDate,
+                      event: { id: selectedPersonal.id, title: modal.event.title, start: localInput(new Date(modal.event.start)),
+                        end: localInput(new Date(modal.event.end)), location: modal.event.location, repeat: "none" } })}>
+                    Edit this occurrence</button>}
                   <button data-testid="button-edit-event" className="rounded-full border px-4 py-2 text-sm font-semibold"
                     onClick={() => setModal({ type: "edit-event", event: selectedPersonal })}>{selectedPersonal.repeat === "none" ? "Edit event" : "Edit series"}</button>
                   <button data-testid="button-delete-event" className="rounded-full border px-4 py-2 text-sm font-semibold text-destructive"

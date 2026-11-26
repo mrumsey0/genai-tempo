@@ -17,8 +17,9 @@ function at(date: Date, hour: number) {
   return localInput(d);
 }
 
-export function EventEditor({ event, initialDate, onSave, onCancel }: {
+export function EventEditor({ event, occurrenceDate, initialDate, onSave, onCancel }: {
   event?: PersonalEvent;
+  occurrenceDate?: string;
   initialDate: Date;
   onSave: (event: PersonalEvent) => void;
   onCancel: () => void;
@@ -46,6 +47,8 @@ export function EventEditor({ event, initialDate, onSave, onCancel }: {
         location: location.trim() || undefined,
         repeat,
         until: repeat !== "none" && until ? until : undefined,
+        excludedDates: repeat !== "none" ? event?.excludedDates : undefined,
+        occurrenceEdits: repeat !== "none" ? event?.occurrenceEdits : undefined,
       });
     } catch (err) {
       setError(err instanceof Error ? err.message : "Couldn't save this event.");
@@ -55,10 +58,10 @@ export function EventEditor({ event, initialDate, onSave, onCancel }: {
   return (
     <div className="space-y-4">
       <DialogHeader>
-        <DialogTitle className="font-serif text-2xl">{event ? "Edit commitment" : "New commitment"}</DialogTitle>
+        <DialogTitle className="font-serif text-2xl">{occurrenceDate ? "Edit this occurrence" : event?.repeat !== "none" && event ? "Edit series" : event ? "Edit commitment" : "New commitment"}</DialogTitle>
         <DialogDescription>
-          {event && event.repeat !== "none"
-            ? "Changes apply to the whole series, including past and future repeats."
+          {occurrenceDate ? "Only this occurrence will change. Other dates and the repeat schedule will stay the same." : event && event.repeat !== "none"
+            ? "Changes apply to the whole series, including past and future repeats. Previously changed occurrences keep their individual details unless repeats are turned off."
             : "Block time for work, classes, practice, or anything else. Study sessions plan around it."}
         </DialogDescription>
       </DialogHeader>
@@ -85,7 +88,7 @@ export function EventEditor({ event, initialDate, onSave, onCancel }: {
           <input id="event-location" data-testid="input-event-location" value={location}
             onChange={(e) => { setLocation(e.target.value); clear(); }} className={field} />
         </div>
-        <div className="grid gap-3 sm:grid-cols-2">
+        {!occurrenceDate && <div className="grid gap-3 sm:grid-cols-2">
           <div className="space-y-1">
             <label htmlFor="event-repeat" className="block text-sm font-semibold">Repeats</label>
             <select id="event-repeat" data-testid="select-event-repeat" value={repeat}
@@ -100,8 +103,8 @@ export function EventEditor({ event, initialDate, onSave, onCancel }: {
                 onChange={(e) => { setUntil(e.target.value); clear(); }} className={field} />
             </div>
           )}
-        </div>
-        {repeat !== "none" && (
+        </div>}
+        {!occurrenceDate && repeat !== "none" && (
           <p className="text-xs text-muted-foreground">Repeats follow this device's local time zone. The end date is included; leave it blank to repeat indefinitely.{repeat === "monthly" ? " Months without this day are skipped." : ""}</p>
         )}
         {error && <p role="alert" data-testid="text-event-error" className="text-sm text-destructive">{error}</p>}

@@ -1,5 +1,13 @@
 import type { CalendarEvent } from "./planner.ts";
 
+export interface PersonalOccurrenceEdit {
+  occurrenceDate: string;
+  title: string;
+  start: string;
+  end: string;
+  location?: string;
+}
+
 export interface PersonalEvent {
   id: string;
   title: string;
@@ -9,6 +17,7 @@ export interface PersonalEvent {
   repeat: "none" | "daily" | "weekdays" | "weekly" | "monthly";
   until?: string;
   excludedDates?: string[];
+  occurrenceEdits?: PersonalOccurrenceEdit[];
 }
 
 const localDate = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
@@ -31,6 +40,33 @@ export function validatePersonalEvent(event: PersonalEvent): void {
   if (event.excludedDates !== undefined && (!Array.isArray(event.excludedDates) || !event.excludedDates.every((d) => typeof d === "string" && /^\d{4}-\d\d-\d\d$/.test(d)))) {
     throw new Error("Saved event exceptions couldn't be read.");
   }
+  if (event.occurrenceEdits !== undefined) {
+    if (!Array.isArray(event.occurrenceEdits) || event.occurrenceEdits.some((edit) =>
+      !edit || typeof edit.occurrenceDate !== "string" || !/^\d{4}-\d\d-\d\d$/.test(edit.occurrenceDate)) ||
+      new Set(event.occurrenceEdits.map((edit) => edit.occurrenceDate)).size !== event.occurrenceEdits.length) {
+      throw new Error("Saved occurrence changes couldn't be read.");
+    }
+    for (const edit of event.occurrenceEdits) validatePersonalEvent({
+      id: event.id, repeat: "none", title: edit.title, start: edit.start, end: edit.end, location: edit.location,
+    });
+  }
+}
+
+/** Keep the original recurrence identity even when an occurrence moves to another week. */
+export function editPersonalOccurrence(event: PersonalEvent, occurrenceDate: string, changes: PersonalEvent): PersonalEvent {
+  if (event.repeat === "none") throw new Error("This event does not repeat.");
+  const from = new Date(`${occurrenceDate}T00:00`);
+  const through = new Date(from);
+  through.setDate(through.getDate() + 1);
+  const original = personalOccurrences([{ ...event, occurrenceEdits: undefined }], from, through);
+  if (!original.some((item) => item.occurrenceDate === occurrenceDate)) throw new Error("This occurrence is no longer in the series.");
+  const edit: PersonalOccurrenceEdit = {
+    occurrenceDate, title: changes.title, start: changes.start, end: changes.end, location: changes.location,
+  };
+  const updated = { ...event, occurrenceEdits: [...(event.occurrenceEdits ?? []).filter((item) =>
+    item.occurrenceDate !== occurrenceDate), edit] };
+  validatePersonalEvent(updated);
+  return updated;
 }
 
 /** Expand only the requested window; recurrence preserves local wall-clock times across DST. */
@@ -54,7 +90,7 @@ export function personalOccurrences(events: PersonalEvent[], from: Date, through
         event.repeat === "daily" ? true :
         event.repeat === "weekdays" ? cursor.getDay() !== 0 && cursor.getDay() !== 6 :
         event.repeat === "weekly" ? diff % 7 === 0 : cursor.getDate() === original.getDate());
-      if (matches && !event.excludedDates?.includes(key)) {
+      if (matches && !event.excludedDates?.includes(key) && !event.occurrenceEdits?.some((edit) => edit.occurrenceDate === key)) {
         const start = new Date(cursor);
         start.setHours(original.getHours(), original.getMinutes(), 0, 0);
         const end = new Date(cursor);
@@ -68,6 +104,16 @@ export function personalOccurrences(events: PersonalEvent[], from: Date, through
       }
       if (event.repeat === "none") break;
       cursor.setDate(cursor.getDate() + 1);
+    }
+    // Scan exceptions independently: their original dates may be outside this window
+    // or beyond the series' end relative to their new dates.
+    for (const edit of event.occurrenceEdits ?? []) {
+      if (event.excludedDates?.includes(edit.occurrenceDate)) continue;
+      if (+new Date(edit.end) > +from && +new Date(edit.start) < +through) result.push({
+        id: `personal-${event.id}-${edit.occurrenceDate}`, personalEventId: event.id, occurrenceDate: edit.occurrenceDate,
+        title: edit.title, start: new Date(edit.start).toISOString(), end: new Date(edit.end).toISOString(),
+        kind: "meeting", location: edit.location,
+      });
     }
   }
   return result;
