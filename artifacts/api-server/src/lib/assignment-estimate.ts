@@ -38,7 +38,7 @@ export function createEstimator(generate: EstimateGenerator, options: { now?: ()
     const time = now(), currentMinute = Math.floor(time / 60_000), currentDay = Math.floor(time / 86_400_000);
     if (minute !== currentMinute) { minute = currentMinute; minuteRequests = 0; }
     if (day !== currentDay) { day = currentDay; dayRequests = 0; }
-    if (dayRequests >= 25) throw new EstimateFailure(429, "The shared daily AI allowance has been reached. Enter hours manually or try tomorrow.", Math.ceil(((day + 1) * 86_400_000 - time) / 1000));
+    if (dayRequests >= 50) throw new EstimateFailure(429, "The shared daily AI allowance has been reached. Enter hours manually or try tomorrow.", Math.ceil(((day + 1) * 86_400_000 - time) / 1000));
     if (minuteRequests >= 5) throw new EstimateFailure(429, "Too many AI estimates. Wait a minute or enter hours manually.", Math.ceil(((minute + 1) * 60_000 - time) / 1000));
     if (active >= 2) throw new EstimateFailure(429, "AI is busy with other estimates. Wait a moment or enter hours manually.", 5);
     if (signal.aborted) throw new EstimateFailure(503, "The estimate was cancelled.");

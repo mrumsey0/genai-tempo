@@ -73,12 +73,12 @@ test("minute allowance has Retry-After and recovers in the next minute", async (
 test("daily allowance caps provider calls even across minute windows", async () => {
   let time = 0, calls = 0;
   const estimate = createEstimator(async () => { calls++; return valid; }, { now: () => time });
-  for (let i = 0; i < 25; i++) { time = i * 60_000; await estimate(input, controller().signal); }
+  for (let i = 0; i < 50; i++) { time = i * 60_000; await estimate(input, controller().signal); }
   await assert.rejects(estimate(input, controller().signal), expectStatus(429));
-  assert.equal(calls, 25);
+  assert.equal(calls, 50);
   time = 86_400_000;
   await estimate(input, controller().signal);
-  assert.equal(calls, 26);
+  assert.equal(calls, 51);
 });
 test("provider failures do not leak diagnostics and release capacity without retrying", async () => {
   let calls = 0;
