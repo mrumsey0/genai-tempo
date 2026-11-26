@@ -1,10 +1,12 @@
 import { useState } from "react";
 import { DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { type Assignment, type CalendarEvent, durationLabel, localInput } from "@/lib/planner";
+import { type PlannerSettings, workingHoursLabel } from "@/lib/settings";
 
-export function SessionEditor({ assignment, session, onMove, onDelete, onAssignment }: {
+export function SessionEditor({ assignment, session, settings, onMove, onDelete, onAssignment }: {
   assignment: Assignment;
   session: CalendarEvent;
+  settings: PlannerSettings;
   onMove: (start: string) => void;
   onDelete: () => void;
   onAssignment: () => void;
@@ -28,7 +30,7 @@ export function SessionEditor({ assignment, session, onMove, onDelete, onAssignm
         <input id="session-start" data-testid="input-session-start" type="datetime-local" step={1800}
           value={start} onChange={(e) => { setStart(e.target.value); setError(null); }}
           className="w-full min-w-0 rounded-xl border bg-background p-3" required />
-        <p className="text-xs text-muted-foreground">Choose an hour or half-hour between 8 am and 9 pm, before the deadline. Existing commitments cannot overlap.</p>
+        <p className="text-xs text-muted-foreground">Choose an hour or half-hour between {workingHoursLabel(settings)}, before the deadline. Existing commitments cannot overlap.</p>
         <button type="submit" className={`${button} bg-primary text-primary-foreground`} data-testid="button-save-session">Move session</button>
       </form>
       {error && <p role="alert" className="text-sm text-destructive">{error}</p>}

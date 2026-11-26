@@ -1,5 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { CalendarDays, ChevronLeft, ChevronRight, Clock, MapPin, Minus, Plus, Trash2, TriangleAlert, Sparkles, Info } from "lucide-react";
+import { CalendarDays, ChevronLeft, ChevronRight, Clock, MapPin, Minus, Plus, Trash2, TriangleAlert, Sparkles, Info, Settings } from "lucide-react";
+import { Link } from "wouter";
+import { loadSettings, workingHoursLabel, type PlannerSettings } from "@/lib/settings";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { SessionEditor } from "@/components/session-editor";
 import { AddCalendar } from "@/components/add-calendar";
@@ -11,7 +13,7 @@ import {
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import {
-  type Assignment, type CalendarEvent, WORK_START, WORK_END,
+  type Assignment, type CalendarEvent,
   addDays, durationLabel, estimateMinutes, loadAssignments,
   localInput, saveAssignments, scheduleAssignment, startOfWeek,
   estimateExplanation, scheduledMinutes, shortfallWarning, moveSession, removeSession,
@@ -36,6 +38,9 @@ const KIND_LABEL = { class: "Class", meeting: "Commitment", work: "Study session
 type Modal = { type: "add" } | { type: "calendar" } | { type: "edit-event"; event?: PersonalEvent } | { type: "event"; event: CalendarEvent } | { type: "assignment"; id: string } | { type: "session"; assignmentId: string; sessionId: string } | null;
 
 export default function Planner() {
+  const [initialSettings] = useState(() => loadSettings());
+  const settings = initialSettings.settings;
+  const weekOf = (date: Date) => startOfWeek(date, settings.weekStartsOn);
   const [initial] = useState(() => loadAssignments());
   const [initialCalendars] = useState(() => loadCalendars());
   const [calendars, setCalendars] = useState(initialCalendars.calendars);
@@ -50,7 +55,7 @@ export default function Planner() {
       return { conflicts, error: undefined };
     } catch (e) { return { conflicts: 0, error: e instanceof Error ? e.message : "Couldn't read calendar events." }; }
   }, [calendars, assignments]);
-  const [weekStart, setWeekStart] = useState(() => startOfWeek(new Date()));
+  const [weekStart, setWeekStart] = useState(() => weekOf(new Date()));
   const [modal, setModal] = useState<Modal>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [noticeIsWarning, setNoticeIsWarning] = useState(false);
@@ -74,13 +79,13 @@ export default function Planner() {
   }, [weekStart, assignments, calendars]);
   const events = visibleCalendar.events;
   const timed = events.filter((e) => !e.allDay);
-  const displayStart = Math.min(WORK_START, ...timed.map((e) => +new Date(e.start) < +weekStart ? 0 : new Date(e.start).getHours()));
-  const displayEnd = Math.max(WORK_END, ...timed.map((e) => {
+  const displayStart = Math.min(Math.floor(settings.workStart / 60), ...timed.map((e) => +new Date(e.start) < +weekStart ? 0 : new Date(e.start).getHours()));
+  const displayEnd = Math.max(Math.ceil(settings.workEnd / 60), ...timed.map((e) => {
     const start = new Date(e.start), end = new Date(e.end);
     return start.toDateString() !== end.toDateString() ? 24 : Math.min(24, Math.ceil(end.getHours() + end.getMinutes() / 60));
   }));
   const HOURS = Array.from({ length: displayEnd - displayStart }, (_, i) => displayStart + i);
-  const storageError = initial.error || initialCalendars.error || calendarView.error || visibleCalendar.error;
+  const storageError = initialSettings.error || initial.error || initialCalendars.error || calendarView.error || visibleCalendar.error;
   const today = new Date();
   const sorted = useMemo(() => [...assignments].sort((a, b) => +new Date(a.due) - +new Date(b.due)), [assignments]);
   const rangeLabel = `${days[0].toLocaleDateString([], { month: "short", day: "numeric" })} – ${days[6].toLocaleDateString([], { month: "short", day: "numeric", year: "numeric" })}`;
@@ -167,6 +172,10 @@ export default function Planner() {
           >
             <Plus className="size-4 transition-transform group-hover:rotate-90" aria-hidden /> Add assignment
           </button>
+          <Link href="/settings" data-testid="link-settings"
+            className="inline-flex items-center gap-2 rounded-full border bg-card px-4 h-10 text-sm font-semibold focus-visible:ring-2 focus-visible:ring-ring">
+            <Settings className="size-4" aria-hidden /> Settings
+          </Link>
         </div>
       </header>
 
@@ -180,7 +189,7 @@ export default function Planner() {
             <div className="flex items-center gap-1.5" role="group" aria-label="Change week">
               <NavBtn label="Previous week" onClick={() => setWeekStart(addDays(weekStart, -7))} testId="button-prev-week"><ChevronLeft className="size-4" /></NavBtn>
               <button
-                onClick={() => setWeekStart(startOfWeek(new Date()))}
+                onClick={() => setWeekStart(weekOf(new Date()))}
                 data-testid="button-today"
                 className="h-9 px-4 rounded-full border bg-card text-sm font-semibold transition hover:bg-secondary active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
               >Today</button>
@@ -339,7 +348,7 @@ export default function Planner() {
           <section className="rounded-3xl bg-primary text-primary-foreground p-5 text-sm space-y-2" data-testid="panel-prototype">
             <h2 className="font-serif text-lg font-semibold flex items-center gap-2"><Info className="size-4" aria-hidden /> A local prototype</h2>
             <p className="opacity-90">Your plans and added calendars stay in this browser. Public calendar links are downloaded through our server for a one-time import, not live sync. Estimates are simulated, not real AI.</p>
-            <p className="opacity-90">Sessions are spread across available days between 8 am and 9 pm, with breaks whenever possible. We aim to finish at least 24 hours before your deadline, using later time only if needed.</p>
+            <p className="opacity-90">Sessions are spread across available days between {workingHoursLabel(settings)}, with breaks whenever possible. We aim to finish at least 24 hours before your deadline, using later time only if needed.</p>
           </section>
         </aside>
       </main>
@@ -374,13 +383,13 @@ export default function Planner() {
       <Dialog open={modal?.type === "edit-event"} onOpenChange={(o) => !o && setModal(null)}>
         <DialogContent className="max-w-lg rounded-3xl max-h-[92dvh] overflow-y-auto" data-testid="dialog-event-editor">
           {modal?.type === "edit-event" && <EventEditor event={modal.event}
-            initialDate={+weekStart === +startOfWeek(new Date()) ? new Date() : weekStart}
+            initialDate={+weekStart === +weekOf(new Date()) ? new Date() : weekStart}
             onCancel={() => setModal(null)} onSave={(event) => {
               validatePersonalEvent(event);
               const exists = personalEvents.some((e) => e.id === event.id);
               savePersonalEvents(exists ? personalEvents.map((e) => e.id === event.id ? event : e) : [...personalEvents, event],
                 `${exists ? "Updated" : "Added"} "${event.title}". New study sessions will work around it; existing sessions were kept.`);
-              setWeekStart(startOfWeek(new Date(event.start)));
+              setWeekStart(weekOf(new Date(event.start)));
             }} />}
         </DialogContent>
       </Dialog>
@@ -391,10 +400,11 @@ export default function Planner() {
             <AddFlow
               assignments={assignments}
               calendars={calendars}
+              settings={settings}
               onClose={() => setModal(null)}
               onDone={(a, list) => {
                 setAssignments(list);
-                setWeekStart(startOfWeek(new Date(a.blocks[0]?.start ?? a.due)));
+                setWeekStart(weekOf(new Date(a.blocks[0]?.start ?? a.due)));
                 setNoticeIsWarning(!!shortfallWarning(a));
                 setNotice(shortfallWarning(a) ?? `Planned "${a.title}" in ${a.blocks.length} sessions.`);
                 setModal(null);
@@ -448,13 +458,13 @@ export default function Planner() {
       <Dialog open={modal?.type === "session"} onOpenChange={(o) => !o && setModal(null)}>
         <DialogContent className="max-w-lg rounded-3xl max-h-[92dvh] overflow-y-auto" data-testid="dialog-session">
           {sessionAssignment && selectedSession && <SessionEditor key={selectedSession.id}
-            assignment={sessionAssignment} session={selectedSession}
+            assignment={sessionAssignment} session={selectedSession} settings={settings}
             onAssignment={() => setModal({ type: "assignment", id: sessionAssignment.id })}
             onMove={(start) => {
               const list = moveSession(assignments, sessionAssignment.id, selectedSession.id, start, new Date(),
-                calendarEvents(calendars, new Date(start), addDays(new Date(start), 1)));
+                calendarEvents(calendars, new Date(start), addDays(new Date(start), 1)), settings);
               saveSessionChange(list, "Moved this study session. All other sessions are unchanged.");
-              setWeekStart(startOfWeek(new Date(start)));
+              setWeekStart(weekOf(new Date(start)));
             }}
             onDelete={() => saveSessionChange(
               removeSession(assignments, sessionAssignment.id, selectedSession.id),
@@ -475,7 +485,7 @@ export default function Planner() {
               </DialogHeader>
               {detailAssignment.description && <p className="text-sm whitespace-pre-wrap">{detailAssignment.description}</p>}
               {shortfallWarning(detailAssignment) && <p role="alert" className="rounded-xl bg-destructive/10 p-3 text-sm text-destructive">{shortfallWarning(detailAssignment)}</p>}
-              <button onClick={() => { setWeekStart(startOfWeek(new Date(detailAssignment.due))); setModal(null); }} className="text-sm font-semibold underline underline-offset-2">Show deadline on calendar</button>
+              <button onClick={() => { setWeekStart(weekOf(new Date(detailAssignment.due))); setModal(null); }} className="text-sm font-semibold underline underline-offset-2">Show deadline on calendar</button>
               <h3 className="text-sm font-semibold">Sessions ({detailAssignment.blocks.length})</h3>
               {detailAssignment.blocks.length === 0 && <p className="text-sm text-muted-foreground">No study sessions scheduled. Your assignment and deadline are still saved.</p>}
               <ol className="space-y-1.5" data-testid="list-sessions">
@@ -539,9 +549,10 @@ function NavBtn({ label, onClick, testId, children }: { label: string; onClick: 
 
 const fieldCls = "h-11 w-full rounded-xl border border-input bg-background px-3 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring";
 
-function AddFlow({ assignments, calendars, onClose, onDone }: {
+function AddFlow({ assignments, calendars, settings, onClose, onDone }: {
   assignments: Assignment[];
   calendars: AddedCalendar[];
+  settings: PlannerSettings;
   onClose: () => void;
   onDone: (a: Assignment, list: Assignment[]) => void;
 }) {
@@ -594,7 +605,7 @@ function AddFlow({ assignments, calendars, onClose, onDone }: {
     try {
       const planned = scheduleAssignment(
         { id: assignmentId, title, description: description.trim(), due: new Date(due).toISOString(), estimatedMinutes: minutes },
-        assignments, new Date(), calendarEvents(calendars, new Date(), new Date(due)),
+        assignments, new Date(), calendarEvents(calendars, new Date(), new Date(due)), settings,
       );
       const list = [...assignments, planned];
       saveAssignments(list);
@@ -662,7 +673,7 @@ function AddFlow({ assignments, calendars, onClose, onDone }: {
     <form onSubmit={submitForm} className="space-y-4" noValidate>
       <DialogHeader>
         <DialogTitle className="font-serif text-2xl">Add an assignment</DialogTitle>
-        <DialogDescription>Tell us what's due. We'll find the time. Sessions fit between 8 am and 9 pm.</DialogDescription>
+        <DialogDescription>Tell us what's due. We'll find the time. Sessions fit between {workingHoursLabel(settings)}.</DialogDescription>
       </DialogHeader>
       <div>
         <label htmlFor="a-title" className="text-sm font-semibold">Title</label>

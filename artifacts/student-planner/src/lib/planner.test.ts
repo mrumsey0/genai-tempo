@@ -179,7 +179,8 @@ test("cross-week and local daylight-saving schedules preserve weekday demo event
   const a = scheduleAssignment(input(300, new Date(2026, 10, 3, 18)), [], current);
   assert.equal(minutes(a), 300);
   assert.ok(a.blocks.some((b) => new Date(b.start).getDate() === 1));
-  assert.equal(startOfWeek(new Date(2026, 10, 1)).getDay(), 1);
+  assert.equal(startOfWeek(new Date(2026, 10, 1)).getDay(), 0);
+  assert.equal(startOfWeek(new Date(2026, 10, 1), 1).getDay(), 1);
   assert.equal(addDays(new Date(2026, 9, 31, 8), 1).getHours(), 8);
 });
 test("demo events never overlap each other across a complete week", () => {

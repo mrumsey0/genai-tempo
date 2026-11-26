@@ -1,3 +1,5 @@
+import { DEFAULT_SETTINGS, validateSettings, workingHoursLabel, type PlannerSettings } from "./settings.ts";
+
 export interface CalendarEvent {
   id: string;
   title: string;
@@ -51,7 +53,9 @@ export function removeSession(assignments: Assignment[], assignmentId: string, s
 export function moveSession(
   assignments: Assignment[], assignmentId: string, sessionId: string, startInput: string, now = new Date(),
   calendarEvents: CalendarEvent[] = [],
+  settings: PlannerSettings = DEFAULT_SETTINGS,
 ): Assignment[] {
+  validateSettings(settings);
   const assignment = assignments.find((a) => a.id === assignmentId);
   const block = assignment?.blocks.find((b) => b.id === sessionId);
   if (!assignment || !block) throw new Error("This study session no longer exists.");
@@ -60,8 +64,10 @@ export function moveSession(
   if (!Number.isFinite(+start) || +start < +now) throw new Error("Choose a start time in the future.");
   if (start.getMinutes() % 30 || start.getSeconds() || start.getMilliseconds()) throw new Error("Choose a start time on the hour or half-hour.");
   const closing = new Date(start);
-  closing.setHours(WORK_END, 0, 0, 0);
-  if (start.getHours() < WORK_START || +end > +closing) throw new Error("Sessions must fit between 8 am and 9 pm.");
+  closing.setHours(0, settings.workEnd, 0, 0);
+  const opening = new Date(start);
+  opening.setHours(0, settings.workStart, 0, 0);
+  if (+start < +opening || +end > +closing) throw new Error(`Sessions must fit between ${workingHoursLabel(settings)}.`);
   if (+end > +new Date(assignment.due)) throw new Error("The whole session must finish on or before the assignment deadline.");
   const busy = [...calendarEvents.filter((event) => !event.transparent), ...assignments.flatMap((a) =>
     a.blocks.filter((b) => !(a.id === assignmentId && b.id === sessionId)))];
@@ -74,10 +80,10 @@ export function moveSession(
       .sort((a, b) => +new Date(a.start) - +new Date(b.start)),
   });
 }
-export function startOfWeek(date: Date): Date {
+export function startOfWeek(date: Date, weekStartsOn: 0 | 1 = 0): Date {
   const result = new Date(date);
   result.setHours(0, 0, 0, 0);
-  result.setDate(result.getDate() - (result.getDay() + 6) % 7);
+  result.setDate(result.getDate() - (result.getDay() - weekStartsOn + 7) % 7);
   return result;
 }
 export function addDays(date: Date, days: number): Date {
@@ -134,7 +140,9 @@ export function scheduleAssignment(
   existing: Assignment[],
   now = new Date(),
   calendarEvents: CalendarEvent[] = [],
+  settings: PlannerSettings = DEFAULT_SETTINGS,
 ): Assignment {
+  validateSettings(settings);
   const deadline = new Date(input.due);
   if (!input.title.trim()) throw new Error("Please give your assignment a title.");
   if (!Number.isFinite(+deadline) || +deadline <= +now) throw new Error("Choose a due date and time in the future.");
@@ -151,9 +159,9 @@ export function scheduleAssignment(
     day.setHours(0, 0, 0, 0);
     while (+day < cutoff) {
       const opening = new Date(day);
-      opening.setHours(WORK_START, 0, 0, 0);
+      opening.setHours(0, settings.workStart, 0, 0);
       const closing = new Date(day);
-      closing.setHours(WORK_END, 0, 0, 0);
+      closing.setHours(0, settings.workEnd, 0, 0);
       let cursor = new Date(Math.max(+opening, +now));
       if (cursor.getMinutes() % 30 || cursor.getSeconds() || cursor.getMilliseconds()) {
         cursor.setMinutes(Math.floor(cursor.getMinutes() / 30) * 30 + 30, 0, 0);

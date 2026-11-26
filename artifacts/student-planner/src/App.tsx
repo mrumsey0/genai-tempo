@@ -14,6 +14,7 @@ import {
 const queryClient = new QueryClient();
 
 import Home from '@/pages/planner';
+import Settings from '@/pages/settings';
 
 function Router() {
   return (
@@ -22,6 +23,7 @@ function Router() {
     <RoutedErrorBoundary>
       <Switch>
         <Route path="/" component={Home} />
+        <Route path="/settings" component={Settings} />
         <Route component={NotFound} />
       </Switch>
     </RoutedErrorBoundary>
