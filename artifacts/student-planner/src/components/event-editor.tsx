@@ -3,12 +3,15 @@ import { DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/di
 import { validatePersonalEvent, type PersonalEvent } from "@/lib/personal-events";
 import { localInput } from "@/lib/planner";
 
-const REPEATS: { value: PersonalEvent["repeat"]; label: string }[] = [
+type RepeatOption = PersonalEvent["repeat"] | "custom";
+
+const REPEATS: { value: RepeatOption; label: string }[] = [
   { value: "none", label: "Does not repeat" },
   { value: "daily", label: "Every day" },
   { value: "weekdays", label: "Every weekday (Mon to Fri)" },
   { value: "weekly", label: "Every week" },
   { value: "monthly", label: "Every month" },
+  { value: "custom", label: "Custom" },
 ];
 
 const WEEKDAYS = [
@@ -38,7 +41,9 @@ export function EventEditor({ event, occurrenceDate, initialDate, onSave, onCanc
   const [start, setStart] = useState(event?.start ?? at(initialDate, 9));
   const [end, setEnd] = useState(event?.end ?? at(initialDate, 10));
   const [location, setLocation] = useState(event?.location ?? "");
-  const [repeat, setRepeat] = useState<PersonalEvent["repeat"]>(event?.repeat ?? "none");
+  const [repeat, setRepeat] = useState<RepeatOption>(
+    event?.repeat === "weekly" && event.weekdays !== undefined ? "custom" : event?.repeat ?? "none",
+  );
   const [weekdays, setWeekdays] = useState<number[] | undefined>(event?.weekdays);
   const selectedWeekdays = weekdays ?? [new Date(start).getDay()];
   const [until, setUntil] = useState(event?.until ?? "");
@@ -57,8 +62,8 @@ export function EventEditor({ event, occurrenceDate, initialDate, onSave, onCanc
         start,
         end,
         location: location.trim() || undefined,
-        repeat,
-        weekdays: repeat === "weekly" ? [...selectedWeekdays].sort((a, b) => a - b) : undefined,
+        repeat: repeat === "custom" ? "weekly" : repeat,
+        weekdays: repeat === "custom" ? [...selectedWeekdays].sort((a, b) => a - b) : undefined,
         until: repeat !== "none" && until ? until : undefined,
         excludedDates: repeat !== "none" ? event?.excludedDates : undefined,
         occurrenceEdits: repeat !== "none" ? event?.occurrenceEdits : undefined,
@@ -107,7 +112,7 @@ export function EventEditor({ event, occurrenceDate, initialDate, onSave, onCanc
           <div className="space-y-1">
             <label htmlFor="event-repeat" className="block text-sm font-semibold">Repeats</label>
             <select id="event-repeat" data-testid="select-event-repeat" value={repeat}
-              onChange={(e) => { setRepeat(e.target.value as PersonalEvent["repeat"]); clear(); }} className={field}>
+              onChange={(e) => { setRepeat(e.target.value as RepeatOption); clear(); }} className={field}>
               {REPEATS.map((r) => <option key={r.value} value={r.value}>{r.label}</option>)}
             </select>
           </div>
@@ -120,7 +125,7 @@ export function EventEditor({ event, occurrenceDate, initialDate, onSave, onCanc
             </div>
           )}
         </div>}
-        {!occurrenceDate && repeat === "weekly" && (
+        {!occurrenceDate && repeat === "custom" && (
           <fieldset className="space-y-2" aria-describedby="event-weekdays-help">
             <legend className="text-sm font-semibold">Repeat on</legend>
             <div className="flex flex-wrap gap-2">
