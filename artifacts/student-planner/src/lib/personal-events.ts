@@ -15,6 +15,9 @@ export interface PersonalEvent {
   end: string;
   location?: string;
   repeat: "none" | "daily" | "weekdays" | "weekly" | "monthly";
+  /** Weekly start days, using local Date.getDay() values (Sunday = 0).
+   * Omitted for legacy weekly events, which repeat on the start weekday. */
+  weekdays?: number[];
   until?: string;
   excludedDates?: string[];
   occurrenceEdits?: PersonalOccurrenceEdit[];
@@ -32,8 +35,14 @@ export function validatePersonalEvent(event: PersonalEvent): void {
     throw new Error("Choose valid dates with the end after the start.");
   }
   if (!["none", "daily", "weekdays", "weekly", "monthly"].includes(event.repeat)) throw new Error("Choose a supported repeat option.");
+  if (event.weekdays !== undefined && (!Array.isArray(event.weekdays) || event.weekdays.length === 0 ||
+    !event.weekdays.every((day) => Number.isInteger(day) && day >= 0 && day <= 6) ||
+    new Set(event.weekdays).size !== event.weekdays.length)) {
+    throw new Error("Choose at least one weekday, with each day selected only once.");
+  }
   if (event.until && (!/^\d{4}-\d\d-\d\d$/.test(event.until) ||
-    !Number.isFinite(+new Date(`${event.until}T00:00`)) || event.until < event.start.slice(0, 10))) {
+    !Number.isFinite(+new Date(`${event.until}T00:00`)) ||
+    localDate(new Date(`${event.until}T00:00`)) !== event.until || event.until < event.start.slice(0, 10))) {
     throw new Error("The repeat end date must be on or after the event's start date.");
   }
   if (event.location !== undefined && (typeof event.location !== "string" || event.location.length > 300)) throw new Error("Keep the location under 300 characters.");
@@ -89,7 +98,8 @@ export function personalOccurrences(events: PersonalEvent[], from: Date, through
       const matches = diff >= 0 && (event.repeat === "none" ? diff === 0 :
         event.repeat === "daily" ? true :
         event.repeat === "weekdays" ? cursor.getDay() !== 0 && cursor.getDay() !== 6 :
-        event.repeat === "weekly" ? diff % 7 === 0 : cursor.getDate() === original.getDate());
+        event.repeat === "weekly" ? (event.weekdays ?? [original.getDay()]).includes(cursor.getDay()) :
+        cursor.getDate() === original.getDate());
       if (matches && !event.excludedDates?.includes(key) && !event.occurrenceEdits?.some((edit) => edit.occurrenceDate === key)) {
         const start = new Date(cursor);
         start.setHours(original.getHours(), original.getMinutes(), 0, 0);

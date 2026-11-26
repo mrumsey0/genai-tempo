@@ -22,6 +22,76 @@ test("monthly recurrence skips months without the selected date", () => {
     new Date("2026-01-01T00:00"), new Date("2026-04-01T00:00"));
   assert.deepEqual(events.map((e) => e.occurrenceDate), ["2026-01-31", "2026-03-31"]);
 });
+test("weekly repeats expand only selected days with stable identities across weeks", () => {
+  const series: PersonalEvent = { ...base, repeat: "weekly", weekdays: [3, 1] };
+  const events = personalOccurrences([series], from, new Date("2026-10-19T00:00"));
+  assert.deepEqual(events.map((e) => e.occurrenceDate), ["2026-10-05", "2026-10-07", "2026-10-12", "2026-10-14"]);
+  assert.ok(events.every((e) => e.personalEventId === base.id &&
+    e.id === `personal-${base.id}-${e.occurrenceDate}` &&
+    new Date(e.start).getHours() === 9 && new Date(e.end).getHours() === 10));
+  assert.deepEqual(personalOccurrences([series], through, new Date("2026-10-19T00:00")), events.slice(2));
+  assert.deepEqual(series.weekdays, [3, 1]);
+});
+test("selected days respect the start boundary, weekends, and inclusive end dates", () => {
+  const series: PersonalEvent = { ...base, start: "2026-10-06T09:00", end: "2026-10-06T10:00",
+    repeat: "weekly", weekdays: [0, 1, 3, 6], until: "2026-10-11" };
+  assert.deepEqual(personalOccurrences([series], from, new Date("2026-10-19T00:00")).map((e) => e.occurrenceDate),
+    ["2026-10-07", "2026-10-10", "2026-10-11"]);
+  assert.equal(personalOccurrences([{ ...series, until: "2026-10-06" }], from, through).length, 0);
+  assert.deepEqual(personalOccurrences([{ ...series, until: "2026-10-07" }], from, through).map((e) => e.occurrenceDate),
+    ["2026-10-07"]);
+  assert.throws(() => validatePersonalEvent({ ...series, until: "2026-10-05" }), /repeat end date/);
+  assert.throws(() => validatePersonalEvent({ ...series, until: "2027-02-30" }), /repeat end date/);
+});
+test("malformed weekday selections are rejected without treating missing legacy selections as invalid", () => {
+  for (const weekdays of [[], null, "Monday", [1, 1], [-1], [7], [1.5], ["1"], [NaN]]) {
+    assert.throws(() => validatePersonalEvent({ ...base, repeat: "weekly", weekdays } as PersonalEvent), /weekday/);
+  }
+  validatePersonalEvent({ ...base, repeat: "weekly" });
+  assert.deepEqual(personalOccurrences([{ ...base, repeat: "weekly" }], from, new Date("2026-10-19T00:00"))
+    .map((e) => e.occurrenceDate), ["2026-10-05", "2026-10-12"]);
+});
+test("selected-day overnight repeats overlap windows and keep local hours across daylight saving", () => {
+  const series: PersonalEvent = { ...base, start: "2026-10-30T23:00", end: "2026-10-31T02:00",
+    repeat: "weekly", weekdays: [5, 1], until: "2026-11-02" };
+  const events = personalOccurrences([series], new Date("2026-10-31T00:00"), new Date("2026-11-04T00:00"));
+  assert.deepEqual(events.map((e) => e.occurrenceDate), ["2026-10-30", "2026-11-02"]);
+  assert.ok(events.every((e) => new Date(e.start).getHours() === 23 && new Date(e.end).getHours() === 2));
+});
+test("selected-day series preserve individual moves and deletions when the selected days change", () => {
+  const series: PersonalEvent = { ...base, repeat: "weekly", weekdays: [1, 3], until: "2026-10-14" };
+  const moved = editPersonalOccurrence(series, "2026-10-07", {
+    ...base, title: "Moved class", start: "2026-10-08T11:00", end: "2026-10-08T12:00",
+  });
+  const events = personalOccurrences([{ ...moved, excludedDates: ["2026-10-12"] }], from, new Date("2026-10-19T00:00"));
+  assert.deepEqual(events.map((e) => e.occurrenceDate).sort(), ["2026-10-05", "2026-10-07", "2026-10-14"]);
+  assert.equal(events.find((e) => e.occurrenceDate === "2026-10-07")?.title, "Moved class");
+  const changedDays = personalOccurrences([{ ...moved, weekdays: [5] }], from, through);
+  assert.deepEqual(changedDays.map((e) => e.occurrenceDate).sort(), ["2026-10-07", "2026-10-09"]);
+  assert.throws(() => editPersonalOccurrence(series, "2026-10-06", base), /no longer/);
+});
+test("old and selected-day events survive browser storage together and block only the correct times", () => {
+  let raw: string | null = null;
+  Object.defineProperty(globalThis, "localStorage", { configurable: true, value: {
+    getItem: () => raw, setItem: (_: string, value: string) => { raw = value; },
+  } });
+  const series: PersonalEvent = { ...base, repeat: "weekly", weekdays: [1, 3], until: "2026-10-07" };
+  const calendars: AddedCalendar[] = [{ id: "mine", name: "My events", type: "personal", events: [
+    series, { ...base, id: "legacy", start: "2026-10-09T09:00", end: "2026-10-09T10:00", repeat: "weekly" },
+  ] }];
+  saveCalendars(calendars);
+  const restored = loadCalendars();
+  assert.equal(restored.error, undefined);
+  assert.deepEqual(restored.calendars, calendars);
+  const conflicts = calendarEvents(restored.calendars, from, new Date("2026-10-19T00:00"));
+  for (const [day, hour] of [["2026-10-05", 10], ["2026-10-06", 9], ["2026-10-07", 10],
+    ["2026-10-09", 10], ["2026-10-12", 9]] as const) {
+    const assignment = scheduleAssignment({
+      id: day, title: "Read", description: "", estimatedMinutes: 60, due: new Date(`${day}T11:00`).toISOString(),
+    }, [], new Date(`${day}T09:00`), conflicts);
+    assert.equal(new Date(assignment.blocks[0].start).getHours(), hour, day);
+  }
+});
 test("occurrence deletion preserves other dates and stable occurrence ids", () => {
   const event = { ...base, repeat: "daily" as const };
   const all = personalOccurrences([event], from, through);

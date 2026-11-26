@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { type PersonalEvent } from "@/lib/personal-events";
+import { validatePersonalEvent, type PersonalEvent } from "@/lib/personal-events";
 import { localInput } from "@/lib/planner";
 
 const REPEATS: { value: PersonalEvent["repeat"]; label: string }[] = [
@@ -9,6 +9,16 @@ const REPEATS: { value: PersonalEvent["repeat"]; label: string }[] = [
   { value: "weekdays", label: "Every weekday (Mon to Fri)" },
   { value: "weekly", label: "Every week" },
   { value: "monthly", label: "Every month" },
+];
+
+const WEEKDAYS = [
+  { value: 1, label: "Mon", name: "Monday" },
+  { value: 2, label: "Tue", name: "Tuesday" },
+  { value: 3, label: "Wed", name: "Wednesday" },
+  { value: 4, label: "Thu", name: "Thursday" },
+  { value: 5, label: "Fri", name: "Friday" },
+  { value: 6, label: "Sat", name: "Saturday" },
+  { value: 0, label: "Sun", name: "Sunday" },
 ];
 
 function at(date: Date, hour: number) {
@@ -29,6 +39,8 @@ export function EventEditor({ event, occurrenceDate, initialDate, onSave, onCanc
   const [end, setEnd] = useState(event?.end ?? at(initialDate, 10));
   const [location, setLocation] = useState(event?.location ?? "");
   const [repeat, setRepeat] = useState<PersonalEvent["repeat"]>(event?.repeat ?? "none");
+  const [weekdays, setWeekdays] = useState<number[] | undefined>(event?.weekdays);
+  const selectedWeekdays = weekdays ?? [new Date(start).getDay()];
   const [until, setUntil] = useState(event?.until ?? "");
   const [error, setError] = useState<string | null>(null);
   const button = "rounded-full border px-4 py-2 text-sm font-semibold focus-visible:ring-2 focus-visible:ring-ring";
@@ -38,7 +50,7 @@ export function EventEditor({ event, occurrenceDate, initialDate, onSave, onCanc
   function submit(e: React.FormEvent) {
     e.preventDefault();
     try {
-      onSave({
+      const updated: PersonalEvent = {
         ...event,
         id: event?.id ?? crypto.randomUUID(),
         title: title.trim(),
@@ -46,10 +58,13 @@ export function EventEditor({ event, occurrenceDate, initialDate, onSave, onCanc
         end,
         location: location.trim() || undefined,
         repeat,
+        weekdays: repeat === "weekly" ? [...selectedWeekdays].sort((a, b) => a - b) : undefined,
         until: repeat !== "none" && until ? until : undefined,
         excludedDates: repeat !== "none" ? event?.excludedDates : undefined,
         occurrenceEdits: repeat !== "none" ? event?.occurrenceEdits : undefined,
-      });
+      };
+      validatePersonalEvent(updated);
+      onSave(updated);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Couldn't save this event.");
     }
@@ -100,10 +115,33 @@ export function EventEditor({ event, occurrenceDate, initialDate, onSave, onCanc
             <div className="space-y-1">
               <label htmlFor="event-until" className="block text-sm font-semibold">Repeat until <span className="font-normal text-muted-foreground">(optional)</span></label>
               <input id="event-until" data-testid="input-event-until" type="date" value={until}
+                min={start.slice(0, 10)}
                 onChange={(e) => { setUntil(e.target.value); clear(); }} className={field} />
             </div>
           )}
         </div>}
+        {!occurrenceDate && repeat === "weekly" && (
+          <fieldset className="space-y-2" aria-describedby="event-weekdays-help">
+            <legend className="text-sm font-semibold">Repeat on</legend>
+            <div className="flex flex-wrap gap-2">
+              {WEEKDAYS.map((day) => (
+                <label key={day.value} className="flex items-center gap-1.5 rounded-xl border px-2 py-2 text-sm">
+                  <input type="checkbox" aria-label={day.name} data-testid={`checkbox-event-weekday-${day.value}`}
+                    className="h-4 w-4 accent-primary" checked={selectedWeekdays.includes(day.value)}
+                    onChange={(e) => {
+                      setWeekdays(e.target.checked ? [...selectedWeekdays, day.value] :
+                        selectedWeekdays.filter((value) => value !== day.value));
+                      clear();
+                    }} />
+                  {day.label}
+                </label>
+              ))}
+            </div>
+            <p id="event-weekdays-help" className="text-xs text-muted-foreground">
+              Choose one or more days. Repeats begin on the first selected day on or after the start date, at the same time.
+            </p>
+          </fieldset>
+        )}
         {!occurrenceDate && repeat !== "none" && (
           <p className="text-xs text-muted-foreground">Repeats follow this device's local time zone. The end date is included; leave it blank to repeat indefinitely.{repeat === "monthly" ? " Months without this day are skipped." : ""}</p>
         )}
