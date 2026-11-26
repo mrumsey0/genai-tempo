@@ -63,22 +63,22 @@ test("concurrency limit blocks a third request and releases capacity", async () 
 test("minute allowance has Retry-After and recovers in the next minute", async () => {
   let time = 0, calls = 0;
   const estimate = createEstimator(async () => { calls++; return valid; }, { now: () => time });
-  for (let i = 0; i < 10; i++) await estimate(input, controller().signal);
+  for (let i = 0; i < 5; i++) await estimate(input, controller().signal);
   await assert.rejects(estimate(input, controller().signal), (e: unknown) => e instanceof EstimateFailure && e.status === 429 && e.retryAfter === 60);
-  assert.equal(calls, 10);
+  assert.equal(calls, 5);
   time = 60_000;
   await estimate(input, controller().signal);
-  assert.equal(calls, 11);
+  assert.equal(calls, 6);
 });
 test("daily allowance caps provider calls even across minute windows", async () => {
   let time = 0, calls = 0;
   const estimate = createEstimator(async () => { calls++; return valid; }, { now: () => time });
-  for (let i = 0; i < 100; i++) { time = i * 60_000; await estimate(input, controller().signal); }
+  for (let i = 0; i < 25; i++) { time = i * 60_000; await estimate(input, controller().signal); }
   await assert.rejects(estimate(input, controller().signal), expectStatus(429));
-  assert.equal(calls, 100);
+  assert.equal(calls, 25);
   time = 86_400_000;
   await estimate(input, controller().signal);
-  assert.equal(calls, 101);
+  assert.equal(calls, 26);
 });
 test("provider failures do not leak diagnostics and release capacity without retrying", async () => {
   let calls = 0;
