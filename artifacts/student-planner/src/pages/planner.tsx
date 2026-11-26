@@ -3,6 +3,8 @@ import { CalendarDays, ChevronLeft, ChevronRight, Clock, MapPin, Minus, Plus, Tr
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { SessionEditor } from "@/components/session-editor";
 import { AddCalendar } from "@/components/add-calendar";
+import { EventEditor } from "@/components/event-editor";
+import { validatePersonalEvent, type PersonalEvent } from "@/lib/personal-events";
 import { calendarEvents, loadCalendars, saveCalendars, type AddedCalendar } from "@/lib/calendars";
 import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
@@ -16,7 +18,6 @@ import {
 } from "@/lib/planner";
 
 const HOUR = 56;
-const HOURS = Array.from({ length: WORK_END - WORK_START }, (_, i) => WORK_START + i);
 const fmtTime = (iso: string) =>
   new Date(iso).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
 const fmtDay = (iso: string) =>
@@ -32,7 +33,7 @@ const KIND: Record<CalendarEvent["kind"], string> = {
 };
 const KIND_LABEL = { class: "Class", meeting: "Commitment", work: "Study session" } as const;
 
-type Modal = { type: "add" } | { type: "calendar" } | { type: "event"; event: CalendarEvent } | { type: "assignment"; id: string } | { type: "session"; assignmentId: string; sessionId: string } | null;
+type Modal = { type: "add" } | { type: "calendar" } | { type: "edit-event"; event?: PersonalEvent } | { type: "event"; event: CalendarEvent } | { type: "assignment"; id: string } | { type: "session"; assignmentId: string; sessionId: string } | null;
 
 export default function Planner() {
   const [initial] = useState(() => loadAssignments());
@@ -55,6 +56,9 @@ export default function Planner() {
   const [noticeIsWarning, setNoticeIsWarning] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState<Assignment | null>(null);
   const [deleteError, setDeleteError] = useState<string | null>(null);
+  const [eventDelete, setEventDelete] = useState(false);
+  const [eventError, setEventError] = useState<string | null>(null);
+  useEffect(() => { setEventDelete(false); setEventError(null); }, [modal]);
 
   const days = useMemo(() => Array.from({ length: 7 }, (_, i) => addDays(weekStart, i)), [weekStart]);
   const visibleCalendar = useMemo(() => {
@@ -69,6 +73,13 @@ export default function Planner() {
     }
   }, [weekStart, assignments, calendars]);
   const events = visibleCalendar.events;
+  const timed = events.filter((e) => !e.allDay);
+  const displayStart = Math.min(WORK_START, ...timed.map((e) => +new Date(e.start) < +weekStart ? 0 : new Date(e.start).getHours()));
+  const displayEnd = Math.max(WORK_END, ...timed.map((e) => {
+    const start = new Date(e.start), end = new Date(e.end);
+    return start.toDateString() !== end.toDateString() ? 24 : Math.min(24, Math.ceil(end.getHours() + end.getMinutes() / 60));
+  }));
+  const HOURS = Array.from({ length: displayEnd - displayStart }, (_, i) => displayStart + i);
   const storageError = initial.error || initialCalendars.error || calendarView.error || visibleCalendar.error;
   const today = new Date();
   const sorted = useMemo(() => [...assignments].sort((a, b) => +new Date(a.due) - +new Date(b.due)), [assignments]);
@@ -99,6 +110,31 @@ export default function Planner() {
     setNoticeIsWarning(false);
     setNotice(message);
   }
+  const personalEvents = calendars.flatMap((c) => c.type === "personal" ? c.events : []);
+  const selectedPersonal = modal?.type === "event" ? personalEvents.find((e) => e.id === modal.event.personalEventId) : undefined;
+  function savePersonalEvents(nextEvents: PersonalEvent[], message: string) {
+    if (storageError) throw new Error(storageError);
+    if (nextEvents.length > 2000) throw new Error("Up to 2,000 personal events can be saved.");
+    nextEvents.forEach(validatePersonalEvent);
+    const next: AddedCalendar[] = [
+      ...calendars.filter((c) => c.type !== "personal"),
+      { id: "tempo-personal", type: "personal", name: "My events", events: nextEvents },
+    ];
+    saveCalendars(next);
+    setCalendars(next);
+    setModal(null);
+    setNoticeIsWarning(false);
+    setNotice(message);
+  }
+  function deletePersonalEvent(onlyOccurrence: boolean) {
+    if (!selectedPersonal || modal?.type !== "event") return;
+    try {
+      const next = onlyOccurrence ? personalEvents.map((e) => e.id === selectedPersonal.id ?
+        { ...e, excludedDates: [...(e.excludedDates ?? []), modal.event.occurrenceDate!] } : e) :
+        personalEvents.filter((e) => e.id !== selectedPersonal.id);
+      savePersonalEvents(next, onlyOccurrence ? "Deleted this occurrence. The rest of the series was kept." : `Deleted "${selectedPersonal.title}". Your study sessions were kept.`);
+    } catch (e) { setEventError(e instanceof Error ? e.message : "Couldn't delete this event."); }
+  }
 
   return (
     <div className="min-h-[100dvh] bg-background">
@@ -113,6 +149,11 @@ export default function Planner() {
             </svg>
             <span className="font-serif text-2xl font-semibold tracking-tight" data-testid="text-brand">Tempo</span>
           </div>
+          <button onClick={() => setModal({ type: "edit-event" })} disabled={!!storageError}
+            data-testid="button-add-event"
+            className="inline-flex items-center gap-2 rounded-full border bg-card px-4 h-10 text-sm font-semibold disabled:opacity-50 focus-visible:ring-2 focus-visible:ring-ring">
+            <Plus className="size-4" aria-hidden /> Add event
+          </button>
           <button onClick={() => setModal({ type: "calendar" })} disabled={!!storageError}
             data-testid="button-add-calendar"
             className="inline-flex items-center gap-2 rounded-full border bg-card px-4 h-10 text-sm font-semibold disabled:opacity-50 focus-visible:ring-2 focus-visible:ring-ring">
@@ -183,8 +224,8 @@ export default function Planner() {
                          {events.filter((e) => {
                            const dayStart = new Date(d); dayStart.setHours(0, 0, 0, 0);
                            const dayEnd = addDays(dayStart, 1);
-                           const opening = new Date(d); opening.setHours(WORK_START, 0, 0, 0);
-                           const closing = new Date(d); closing.setHours(WORK_END, 0, 0, 0);
+                           const opening = new Date(d); opening.setHours(displayStart, 0, 0, 0);
+                           const closing = new Date(d); closing.setHours(displayEnd, 0, 0, 0);
                            return e.kind !== "work" && +new Date(e.start) < +dayEnd && +new Date(e.end) > +dayStart &&
                              (e.allDay || +new Date(e.end) <= +opening || +new Date(e.start) >= +closing);
                          }).map((e) => <button key={e.id} onClick={() => setModal({ type: "event", event: e })}
@@ -212,8 +253,8 @@ export default function Planner() {
                 </div>
                 {days.map((d) => {
                   const isToday = d.toDateString() === today.toDateString();
-                  const opening = new Date(d); opening.setHours(WORK_START, 0, 0, 0);
-                  const closing = new Date(d); closing.setHours(WORK_END, 0, 0, 0);
+                  const opening = new Date(d); opening.setHours(displayStart, 0, 0, 0);
+                  const closing = new Date(d); closing.setHours(displayEnd, 0, 0, 0);
                   const dayEvents = events.filter((e) => !e.allDay && +new Date(e.start) < +closing && +new Date(e.end) > +opening);
                   return (
                     <div key={+d} className={`relative border-l ${isToday ? "bg-accent/30" : ""}`} style={{ height: HOUR * HOURS.length }}>
@@ -241,13 +282,13 @@ export default function Planner() {
                       })}
                       {sorted.filter((a) => {
                         const due = new Date(a.due);
-                        return due.toDateString() === d.toDateString() && due.getHours() >= WORK_START && due.getHours() < WORK_END;
+                        return due.toDateString() === d.toDateString() && due.getHours() >= displayStart && due.getHours() < displayEnd;
                       }).map((a) => {
                         const due = new Date(a.due);
                         return <button key={`line-${a.id}`} aria-label={`${a.title} deadline at ${fmtTime(a.due)}`}
                           onClick={() => setModal({ type: "assignment", id: a.id })}
                           className="absolute inset-x-0 z-10 border-t-2 border-dashed border-destructive text-right text-[9px] text-destructive focus-visible:ring-2 focus-visible:ring-ring"
-                          style={{ top: ((due.getHours() - WORK_START) + due.getMinutes() / 60) * HOUR }}>
+                          style={{ top: ((due.getHours() - displayStart) + due.getMinutes() / 60) * HOUR }}>
                           <span className="bg-card px-1">Due {fmtTime(a.due)}</span>
                         </button>;
                       })}
@@ -307,7 +348,7 @@ export default function Planner() {
         <DialogContent className="max-w-lg rounded-3xl max-h-[92dvh] overflow-y-auto" data-testid="dialog-calendar">
           {modal?.type === "calendar" && <AddCalendar hasSample={calendars.some((c) => c.type === "sample")} onAdd={(calendar) => {
             if (storageError) throw new Error(storageError);
-            if (calendars.length >= 10) throw new Error("Up to 10 calendars can be added in this prototype.");
+            if (calendars.filter((c) => c.type !== "personal").length >= 10) throw new Error("Up to 10 calendars can be added in this prototype.");
             if (calendars.some((c) => c.id === calendar.id || c.type === "import" && calendar.type === "import" && c.content === calendar.content)) {
               throw new Error("This calendar has already been added.");
             }
@@ -327,6 +368,20 @@ export default function Planner() {
             setNoticeIsWarning(false);
             setNotice("Deleted the sample calendar. Your assignments, study sessions, and imported calendars were kept.");
           }} />}
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={modal?.type === "edit-event"} onOpenChange={(o) => !o && setModal(null)}>
+        <DialogContent className="max-w-lg rounded-3xl max-h-[92dvh] overflow-y-auto" data-testid="dialog-event-editor">
+          {modal?.type === "edit-event" && <EventEditor event={modal.event}
+            initialDate={+weekStart === +startOfWeek(new Date()) ? new Date() : weekStart}
+            onCancel={() => setModal(null)} onSave={(event) => {
+              validatePersonalEvent(event);
+              const exists = personalEvents.some((e) => e.id === event.id);
+              savePersonalEvents(exists ? personalEvents.map((e) => e.id === event.id ? event : e) : [...personalEvents, event],
+                `${exists ? "Updated" : "Added"} "${event.title}". New study sessions will work around it; existing sessions were kept.`);
+              setWeekStart(startOfWeek(new Date(event.start)));
+            }} />}
         </DialogContent>
       </Dialog>
 
@@ -364,6 +419,27 @@ export default function Planner() {
                 {modal.event.location && <li className="flex gap-2"><MapPin className="size-4 mt-0.5" aria-hidden />{modal.event.location}</li>}
               </ul>
               <p className="text-xs text-muted-foreground">Added calendar event. Tempo works around busy events when planning new study sessions.</p>
+              {selectedPersonal && <div className="border-t pt-4 space-y-3">
+                <p className="text-sm text-muted-foreground">{selectedPersonal.repeat === "none" ? "One-time event" :
+                  `Repeats ${selectedPersonal.repeat}${selectedPersonal.until ? ` through ${selectedPersonal.until}` : ""}. Changes apply to the whole series.`}</p>
+                {eventError && <p role="alert" className="text-sm text-destructive">{eventError}</p>}
+                {eventDelete ? <>
+                  <p className="text-sm">Delete {selectedPersonal.repeat === "none" ? "this event" : "this occurrence or the entire series"}? Assignments and study sessions will be kept.</p>
+                  <div className="flex flex-wrap gap-2">
+                    {selectedPersonal.repeat !== "none" && <button className="rounded-full border px-4 py-2 text-sm font-semibold text-destructive"
+                      data-testid="button-delete-occurrence" onClick={() => deletePersonalEvent(true)}>Delete this occurrence</button>}
+                    <button className="rounded-full border px-4 py-2 text-sm font-semibold text-destructive"
+                      data-testid="button-confirm-delete-event" onClick={() => deletePersonalEvent(false)}>
+                      {selectedPersonal.repeat === "none" ? "Delete event" : "Delete entire series"}</button>
+                    <button className="rounded-full border px-4 py-2 text-sm font-semibold" onClick={() => setEventDelete(false)}>Keep event</button>
+                  </div>
+                </> : <div className="flex flex-wrap gap-2">
+                  <button data-testid="button-edit-event" className="rounded-full border px-4 py-2 text-sm font-semibold"
+                    onClick={() => setModal({ type: "edit-event", event: selectedPersonal })}>{selectedPersonal.repeat === "none" ? "Edit event" : "Edit series"}</button>
+                  <button data-testid="button-delete-event" className="rounded-full border px-4 py-2 text-sm font-semibold text-destructive"
+                    onClick={() => setEventDelete(true)}>Delete event</button>
+                </div>}
+              </div>}
             </>
           )}
         </DialogContent>

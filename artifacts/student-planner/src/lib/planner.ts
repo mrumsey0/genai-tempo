@@ -8,6 +8,8 @@ export interface CalendarEvent {
   location?: string;
   allDay?: boolean;
   transparent?: boolean;
+  personalEventId?: string;
+  occurrenceDate?: string;
 }
 export interface Assignment {
   id: string;

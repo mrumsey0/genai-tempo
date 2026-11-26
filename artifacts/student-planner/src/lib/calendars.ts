@@ -1,7 +1,9 @@
 import ICAL from "ical.js";
 import { demoEvents, type CalendarEvent } from "./planner.ts";
+import { personalOccurrences, validatePersonalEvent, type PersonalEvent } from "./personal-events.ts";
 
 export type AddedCalendar = { id: string; name: string; type: "sample" } |
+  { id: string; name: string; type: "personal"; events: PersonalEvent[] } |
   { id: string; name: string; type: "import"; content: string };
 export const CALENDARS_KEY = "tempo.calendars.v1";
 const MAX_CONTENT = 1024 * 1024;
@@ -46,6 +48,10 @@ export function calendarEvents(calendars: AddedCalendar[], from: Date, through: 
   const result: CalendarEvent[] = [];
   let iterations = 0;
   for (const calendar of calendars) {
+    if (calendar.type === "personal") {
+      result.push(...personalOccurrences(calendar.events, from, through));
+      continue;
+    }
     if (calendar.type === "sample") {
       result.push(...demoEvents(from, through).map((e) => ({ ...e, id: `${calendar.id}-${e.id}` })));
       continue;
@@ -95,11 +101,13 @@ export function loadCalendars(): { calendars: AddedCalendar[]; error?: string } 
     const raw = localStorage.getItem(CALENDARS_KEY);
     if (!raw) return { calendars: [] };
     const data: unknown = JSON.parse(raw);
-    if (!Array.isArray(data) || data.length > 10 || !data.every((c) => c && typeof c.id === "string" &&
-      typeof c.name === "string" && (c.type === "sample" || c.type === "import" && typeof c.content === "string"))) {
+    if (!Array.isArray(data) || data.length > 11 || !data.every((c) => c && typeof c.id === "string" &&
+      typeof c.name === "string" && (c.type === "sample" || c.type === "import" && typeof c.content === "string" ||
+        c.type === "personal" && Array.isArray(c.events) && c.events.length <= 2000))) {
       throw new Error("Saved calendars couldn't be read. Your saved data has not been overwritten.");
     }
     for (const c of data) if (c.type === "import") parseCalendar(c.content);
+    for (const c of data) if (c.type === "personal") for (const event of c.events) validatePersonalEvent(event);
     return { calendars: data };
   } catch (e) {
     return { calendars: [], error: e instanceof Error ? e.message : "Saved calendars couldn't be read." };
