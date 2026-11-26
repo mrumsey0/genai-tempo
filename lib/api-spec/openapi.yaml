@@ -11,6 +11,65 @@ tags:
   - name: health
     description: Health operations
 paths:
+  /openai/estimate:
+    post:
+      operationId: estimateAssignment
+      summary: Estimate assignment effort using its title and description
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AssignmentEstimateInput"
+      responses:
+        "200":
+          description: AI effort estimate, for student review
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AssignmentEstimate"
+        "400":
+          description: Invalid assignment details
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EstimateError"
+        "403":
+          description: Cross-site requests are not allowed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EstimateError"
+        "413":
+          description: Request is too large
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EstimateError"
+        "429":
+          description: Shared request or usage limit reached
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EstimateError"
+        "502":
+          description: AI returned an unusable response
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EstimateError"
+        "503":
+          description: AI is temporarily unavailable
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EstimateError"
+        "504":
+          description: AI request timed out
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EstimateError"
   /calendars/import:
     post:
       operationId: importCalendar
@@ -55,6 +114,48 @@ paths:
                 $ref: "#/components/schemas/HealthStatus"
 components:
   schemas:
+    AssignmentEstimateInput:
+      type: object
+      additionalProperties: false
+      required: [title, description]
+      properties:
+        title:
+          type: string
+          minLength: 1
+          maxLength: 200
+        description:
+          type: string
+          maxLength: 6000
+    AssignmentEstimate:
+      type: object
+      additionalProperties: false
+      required: [estimatedMinutes, explanation, assumptions, model]
+      properties:
+        estimatedMinutes:
+          type: integer
+          minimum: 30
+          maximum: 2400
+          multipleOf: 30
+        explanation:
+          type: string
+          minLength: 1
+          maxLength: 900
+        assumptions:
+          type: array
+          maxItems: 5
+          items:
+            type: string
+            minLength: 1
+            maxLength: 180
+        model:
+          type: string
+          enum: [gpt-5-nano]
+    EstimateError:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: string
     CalendarLink:
       type: object
       required: [url]

@@ -6,7 +6,11 @@
  * OpenAPI spec version: 0.1.0
  */
 
+export * from './assignmentEstimate';
+export * from './assignmentEstimateInput';
+export * from './assignmentEstimateModel';
 export * from './calendarFeed';
 export * from './calendarImportError';
 export * from './calendarLink';
+export * from './estimateError';
 export * from './healthStatus';

@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { estimateAssignment, type AssignmentEstimate } from "@workspace/api-client-react";
 import { CalendarDays, ChevronLeft, ChevronRight, Clock, MapPin, Minus, Plus, Trash2, TriangleAlert, Sparkles, Info, Settings } from "lucide-react";
 import { Link } from "wouter";
 import { loadSettings, workingHoursLabel, type PlannerSettings } from "@/lib/settings";
@@ -14,9 +15,9 @@ import {
 } from "@/components/ui/alert-dialog";
 import {
   type Assignment, type CalendarEvent,
-  addDays, durationLabel, estimateMinutes, loadAssignments,
+  addDays, durationLabel, loadAssignments,
   localInput, saveAssignments, scheduleAssignment, startOfWeek,
-  estimateExplanation, scheduledMinutes, shortfallWarning, moveSession, removeSession,
+  scheduledMinutes, shortfallWarning, moveSession, removeSession,
 } from "@/lib/planner";
 
 const HOUR = 56;
@@ -347,7 +348,7 @@ export default function Planner() {
           </section>
           <section className="rounded-3xl bg-primary text-primary-foreground p-5 text-sm space-y-2" data-testid="panel-prototype">
             <h2 className="font-serif text-lg font-semibold flex items-center gap-2"><Info className="size-4" aria-hidden /> A local prototype</h2>
-            <p className="opacity-90">Your plans and added calendars stay in this browser. Public calendar links are downloaded through our server for a one-time import, not live sync. Estimates are simulated, not real AI.</p>
+            <p className="opacity-90">Your plans and added calendars stay in this browser. Public calendar links are downloaded through our server for a one-time import, not live sync. AI estimates send only the assignment title and description through our server to OpenAI. You can enter hours manually instead.</p>
             <p className="opacity-90">Sessions are spread across available days between {workingHoursLabel(settings)}, with breaks whenever possible. We aim to finish at least 24 hours before your deadline, using later time only if needed.</p>
           </section>
         </aside>
@@ -572,6 +573,8 @@ function AddFlow({ assignments, calendars, settings, onClose, onDone }: {
   const [hours, setHours] = useState("1");
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  const [aiEstimate, setAiEstimate] = useState<AssignmentEstimate | null>(null);
+  const estimateRequest = useRef<AbortController | null>(null);
   const [assignmentId] = useState(() => `a-${crypto.randomUUID()}`);
   const headingRef = useRef<HTMLHeadingElement>(null);
   const due = `${date}T${time}`;
@@ -580,23 +583,59 @@ function AddFlow({ assignments, calendars, settings, onClose, onDone }: {
     if (step !== "form") headingRef.current?.focus();
   }, [step]);
 
-  useEffect(() => {
-    if (step !== "estimating") return;
-    const t = window.setTimeout(() => {
-      setHours(String(estimateMinutes(title, description) / 60));
-      setStep("review");
-    }, 2500);
-    return () => window.clearTimeout(t);
-  }, [step, title, description]);
+  useEffect(() => () => { estimateRequest.current?.abort(); estimateRequest.current = null; }, []);
 
-  function submitForm(ev: React.FormEvent) {
-    ev.preventDefault();
-    if (!title.trim()) return setError("Please give your assignment a title.");
+  function validForm(): boolean {
+    if (!title.trim() || title.length > 200 || description.length > 6000) {
+      setError("Enter a title of 1–200 characters and a description of up to 6,000 characters.");
+      return false;
+    }
     if (!date || !time || !Number.isFinite(+new Date(due)) || +new Date(due) <= Date.now()) {
-      return setError("Choose a due date and time in the future.");
+      setError("Choose a due date and time in the future.");
+      return false;
     }
     setError(null);
+    return true;
+  }
+
+  async function submitForm(ev: React.FormEvent) {
+    ev.preventDefault();
+    if (estimateRequest.current || !validForm()) return;
+    const controller = new AbortController();
+    estimateRequest.current = controller;
+    setAiEstimate(null);
     setStep("estimating");
+    let timedOut = false;
+    const timer = window.setTimeout(() => { timedOut = true; controller.abort(); }, 30_000);
+    try {
+      const result = await estimateAssignment({ title: title.trim(), description: description.trim() }, { signal: controller.signal });
+      if (estimateRequest.current !== controller || controller.signal.aborted) return;
+      setAiEstimate(result);
+      setHours(String(result.estimatedMinutes / 60));
+      setStep("review");
+    } catch (e) {
+      if (estimateRequest.current !== controller) return;
+      setError(timedOut ? "AI took too long. Try again or enter hours manually." :
+        e instanceof Error ? e.message : "Couldn't estimate this assignment. Try again or enter hours manually.");
+      setStep("form");
+    } finally {
+      window.clearTimeout(timer);
+      if (estimateRequest.current === controller) estimateRequest.current = null;
+    }
+  }
+
+  function cancelEstimate() {
+    estimateRequest.current?.abort();
+    estimateRequest.current = null;
+    setError(null);
+    setStep("form");
+  }
+
+  function enterManually() {
+    if (!validForm()) return;
+    setAiEstimate(null);
+    setHours("1");
+    setStep("review");
   }
 
   const minutes = Math.round(Number(hours) * 60);
@@ -633,14 +672,14 @@ function AddFlow({ assignments, calendars, settings, onClose, onDone }: {
       <div className="py-6 text-center" role="status" data-testid="status-estimating">
         <DialogHeader className="items-center">
           <DialogTitle ref={headingRef} tabIndex={-1} className="font-serif text-2xl outline-none">Sizing up the work</DialogTitle>
-          <DialogDescription>Reading "{title.trim()}" and guessing how long it takes. Demo estimate, not real AI.</DialogDescription>
+          <DialogDescription>Estimating the work involved in "{title.trim()}" with AI. This may take a few seconds.</DialogDescription>
         </DialogHeader>
         <div className="my-8 flex items-end justify-center gap-2 h-16" aria-hidden>
           {[0, 1, 2, 3, 4].map((i) => (
             <span key={i} className="w-3 rounded-full bg-accent-foreground/70 animate-bounce" style={{ height: 24 + (i % 3) * 14, animationDelay: `${i * 120}ms` }} />
           ))}
         </div>
-        <button onClick={() => setStep("form")} data-testid="button-cancel-estimate" className="h-10 px-5 rounded-full border text-sm font-semibold hover:bg-secondary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">Back to edit</button>
+        <button onClick={cancelEstimate} data-testid="button-cancel-estimate" className="h-10 px-5 rounded-full border text-sm font-semibold hover:bg-secondary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">Back to edit</button>
       </div>
     );
   }
@@ -653,8 +692,11 @@ function AddFlow({ assignments, calendars, settings, onClose, onDone }: {
           <DialogDescription>"{title.trim()}", due {fmtDue(new Date(due).toISOString())}. Adjust the hours if our guess is off.</DialogDescription>
         </DialogHeader>
         <div className="rounded-xl bg-secondary p-3 text-sm">
-          <p data-testid="text-estimate-explanation">{estimateExplanation(title, description)}</p>
-          <p className="mt-2 text-xs text-muted-foreground">Simulated estimate — adjust it to match your workload.</p>
+          <p data-testid="text-estimate-explanation">{aiEstimate?.explanation ?? "Choose the hours you expect to need. No AI request was made for this manual estimate."}</p>
+          {!!aiEstimate?.assumptions.length && <ul className="mt-2 list-disc pl-5 space-y-1" data-testid="list-estimate-assumptions">
+            {aiEstimate.assumptions.map((assumption, i) => <li key={i}>{assumption}</li>)}
+          </ul>}
+          <p className="mt-2 text-xs text-muted-foreground">{aiEstimate ? "AI estimate · GPT-5 nano · rounded up to half hours. This is a rough estimate, not a guarantee—adjust it to match your workload." : "Manual estimate — adjust it to match your workload."}</p>
         </div>
         <div>
           <label htmlFor="est-hours" className="text-sm font-semibold">Estimated hours</label>
@@ -685,11 +727,11 @@ function AddFlow({ assignments, calendars, settings, onClose, onDone }: {
       </DialogHeader>
       <div>
         <label htmlFor="a-title" className="text-sm font-semibold">Title</label>
-        <input id="a-title" autoFocus value={title} onChange={(e) => { setTitle(e.target.value); setError(null); }} data-testid="input-title" className={`${fieldCls} mt-1.5`} placeholder="Essay on memory and sleep" autoComplete="off" />
+        <input id="a-title" autoFocus maxLength={200} value={title} onChange={(e) => { setTitle(e.target.value); setError(null); }} data-testid="input-title" className={`${fieldCls} mt-1.5`} placeholder="Essay on memory and sleep" autoComplete="off" />
       </div>
       <div>
         <label htmlFor="a-desc" className="text-sm font-semibold">Description <span className="font-normal text-muted-foreground">(optional)</span></label>
-        <textarea id="a-desc" rows={3} value={description} onChange={(e) => setDescription(e.target.value)} data-testid="input-description" className={`${fieldCls} mt-1.5 h-auto py-2.5 resize-none`} placeholder="Length, sources, anything that affects effort" />
+        <textarea id="a-desc" rows={3} maxLength={6000} value={description} onChange={(e) => setDescription(e.target.value)} data-testid="input-description" className={`${fieldCls} mt-1.5 h-auto py-2.5 resize-none`} placeholder="Length, sources, anything that affects effort" />
       </div>
       <div className="grid grid-cols-2 gap-3">
         <div>
@@ -702,8 +744,10 @@ function AddFlow({ assignments, calendars, settings, onClose, onDone }: {
         </div>
       </div>
       {errorBox}
-      <div className="flex justify-end gap-2">
+      <p className="text-xs text-muted-foreground">Estimate effort sends only this title and description to OpenAI through our server. Avoid sensitive personal details. Manual entry does not use AI.</p>
+      <div className="flex flex-wrap justify-end gap-2">
         <button type="button" onClick={onClose} data-testid="button-cancel-add" className="h-10 px-5 rounded-full border text-sm font-semibold hover:bg-secondary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">Cancel</button>
+        <button type="button" onClick={enterManually} data-testid="button-manual-estimate" className="h-10 px-5 rounded-full border text-sm font-semibold hover:bg-secondary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">Enter hours manually</button>
         <button type="submit" data-testid="button-estimate" className="h-10 px-5 rounded-full bg-primary text-primary-foreground text-sm font-semibold active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2">Estimate effort</button>
       </div>
     </form>

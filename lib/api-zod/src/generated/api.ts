@@ -9,6 +9,40 @@ import * as zod from 'zod';
 
 
 /**
+ * @summary Estimate assignment effort using its title and description
+ */
+export const estimateAssignmentBodyTitleMax = 200;
+
+export const estimateAssignmentBodyDescriptionMax = 6000;
+
+
+
+export const EstimateAssignmentBody = zod.object({
+  "title": zod.string().min(1).max(estimateAssignmentBodyTitleMax),
+  "description": zod.string().max(estimateAssignmentBodyDescriptionMax)
+})
+
+export const estimateAssignmentResponseEstimatedMinutesMin = 30;
+export const estimateAssignmentResponseEstimatedMinutesMax = 2400;
+export const estimateAssignmentResponseEstimatedMinutesMultipleOf = 30;
+
+export const estimateAssignmentResponseExplanationMax = 900;
+
+export const estimateAssignmentResponseAssumptionsItemMax = 180;
+
+export const estimateAssignmentResponseAssumptionsMax = 5;
+
+
+
+export const EstimateAssignmentResponse = zod.object({
+  "estimatedMinutes": zod.int().min(estimateAssignmentResponseEstimatedMinutesMin).max(estimateAssignmentResponseEstimatedMinutesMax).multipleOf(estimateAssignmentResponseEstimatedMinutesMultipleOf),
+  "explanation": zod.string().min(1).max(estimateAssignmentResponseExplanationMax),
+  "assumptions": zod.array(zod.string().min(1).max(estimateAssignmentResponseAssumptionsItemMax)).max(estimateAssignmentResponseAssumptionsMax),
+  "model": zod.enum(['gpt-5-nano'])
+})
+
+
+/**
  * @summary Fetch a public iCalendar feed for a one-time browser import
  */
 export const importCalendarBodyUrlMax = 4096;

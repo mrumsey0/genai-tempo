@@ -5,6 +5,47 @@
  * API specification
  * OpenAPI spec version: 0.1.0
  */
+export interface AssignmentEstimateInput {
+  /**
+     * @minLength 1
+     * @maxLength 200
+     */
+  title: string;
+  /** @maxLength 6000 */
+  description: string;
+}
+
+export type AssignmentEstimateModel = typeof AssignmentEstimateModel[keyof typeof AssignmentEstimateModel];
+
+
+export const AssignmentEstimateModel = {
+  'gpt-5-nano': 'gpt-5-nano',
+} as const;
+
+export interface AssignmentEstimate {
+  /**
+     * @minimum 30
+     * @maximum 2400
+     */
+  estimatedMinutes: number;
+  /**
+     * @minLength 1
+     * @maxLength 900
+     */
+  explanation: string;
+  /**
+     * @maxItems 5
+     * @items.minLength 1
+     * @items.maxLength 180
+     */
+  assumptions: string[];
+  model: AssignmentEstimateModel;
+}
+
+export interface EstimateError {
+  error: string;
+}
+
 export interface CalendarLink {
   /**
      * @minLength 1

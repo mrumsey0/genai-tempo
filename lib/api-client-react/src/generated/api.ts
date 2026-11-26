@@ -25,9 +25,12 @@ import type {
 } from '@tanstack/react-query';
 
 import type {
+  AssignmentEstimate,
+  AssignmentEstimateInput,
   CalendarFeed,
   CalendarImportError,
   CalendarLink,
+  EstimateError,
   HealthStatus
 } from './api.schemas';
 
@@ -77,6 +80,78 @@ const withQueryKey = <T extends object, K>(query: T, queryKey: K): T & { queryKe
   }
   return result;
 };
+
+export const getEstimateAssignmentUrl = () => {
+
+
+
+
+  return `/api/openai/estimate`
+}
+
+/**
+ * @summary Estimate assignment effort using its title and description
+ */
+export const estimateAssignment = async (assignmentEstimateInput: AssignmentEstimateInput, options?: Parameters<typeof customFetch>[1]): Promise<AssignmentEstimate> => {
+
+  return customFetch<AssignmentEstimate>(getEstimateAssignmentUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: getHeaders({ 'Content-Type': 'application/json' }, options?.headers),
+    body: JSON.stringify(assignmentEstimateInput)
+  }
+);}
+
+
+
+
+
+export const getEstimateAssignmentMutationKey = () => ['estimateAssignment'] as const;
+
+export const getEstimateAssignmentMutationOptions = <TError = ErrorType<EstimateError>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof estimateAssignment>>, TError,EstimateAssignmentMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof estimateAssignment>>, TError,EstimateAssignmentMutationVariables, TContext> => {
+
+const mutationKey = getEstimateAssignmentMutationKey();
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof estimateAssignment>>, EstimateAssignmentMutationVariables> = (props) => {
+          const {data} = props ?? {};
+
+          return  estimateAssignment(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type EstimateAssignmentMutationResult = NonNullable<Awaited<ReturnType<typeof estimateAssignment>>>
+    export type EstimateAssignmentMutationBody = BodyType<AssignmentEstimateInput>
+    export type EstimateAssignmentMutationError = ErrorType<EstimateError>
+    export type EstimateAssignmentMutationVariables = {data: BodyType<AssignmentEstimateInput>}
+
+    /** @summary Estimate assignment effort using its title and description */
+export const useEstimateAssignment = <TError = ErrorType<EstimateError>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof estimateAssignment>>, TError,EstimateAssignmentMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof estimateAssignment>>,
+        TError,
+        EstimateAssignmentMutationVariables,
+        TContext
+      > => {
+      return useMutation(getEstimateAssignmentMutationOptions(options), queryClient);
+    }
 
 export const getImportCalendarUrl = () => {
 

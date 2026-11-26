@@ -164,7 +164,7 @@ export default function Settings() {
           <div>
             <h2 id="data-heading" className="font-serif text-2xl font-semibold">Your data</h2>
             <p className="text-sm text-muted-foreground mt-1">
-              Your assignments, calendars, and settings are saved only in this browser, not synced to other devices. Public calendar links are downloaded through our server for one-time import.
+              Your assignments, calendars, and settings are saved only in this browser, not synced to other devices. Public calendar links are downloaded through our server for one-time import. AI estimates send only the assignment title and description through our server to OpenAI; calendars are not sent to AI. You can enter hours manually instead.
             </p>
           </div>
           <button onClick={() => { setClearError(null); setDialogOpen(true); }} data-testid="button-clear-data"

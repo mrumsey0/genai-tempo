@@ -7,9 +7,11 @@
     "dev": "export NODE_ENV=development && pnpm run build && pnpm run start",
     "build": "node ./build.mjs",
     "start": "node --enable-source-maps ./dist/index.mjs",
-    "typecheck": "tsc -p tsconfig.json --noEmit"
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test:estimates": "esbuild src/lib/assignment-estimate.test.ts --bundle --platform=node --format=cjs --outfile=../../.local/tests/assignment-estimate.test.cjs && node --test ../../.local/tests/assignment-estimate.test.cjs"
   },
   "dependencies": {
+    "@workspace/integrations-openai-ai-server": "workspace:*",
     "@workspace/api-zod": "workspace:*",
     "@workspace/db": "workspace:*",
     "cookie-parser": "^1.4.7",
